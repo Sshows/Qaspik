@@ -6,6 +6,7 @@ const path = require('path');
 const {
   getDb,
   saveDb,
+  hydrateFromSupabase,
   upsertMerchantByPhone,
   registerDeviceForMerchant,
   removeDeviceFromMerchant
@@ -14,6 +15,7 @@ const {
   requestKaspiSmsCode,
   verifyKaspiSmsCode,
   runRepricerCycle,
+  updateProductLimits,
   triggerCompetitorPriceChange,
   registerNctForProduct
 } = require('./src/kaspiService');
@@ -24,8 +26,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Создаем стартовое ИП для демонстрации, если база пустая
-function ensureInitialMerchant() {
+let isHydrated = false;
+async function ensureReady() {
+  if (!isHydrated) {
+    isHydrated = true;
+    await hydrateFromSupabase();
+  }
   const db = getDb();
   if (Object.keys(db.merchants).length === 0) {
     upsertMerchantByPhone({
@@ -40,7 +46,6 @@ function ensureInitialMerchant() {
     });
   }
 }
-ensureInitialMerchant();
 
 function getPrimaryMerchant() {
   const db = getDb();
@@ -48,61 +53,102 @@ function getPrimaryMerchant() {
   return list[list.length - 1] || null;
 }
 
-// Страница /products?context=nct&filterType=Published&currentPage=1&orderBy=NctNotRegisteredFirst
+let botInstance = null;
+const token = process.env.TELEGRAM_BOT_TOKEN;
+if (token && token !== 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
+  botInstance = createTelegramBot(token);
+}
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.get('/products', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// API состояния
-app.get('/api/state', (req, res) => {
+app.get('/api/state', async (req, res) => {
+  await ensureReady();
   const db = getDb();
   const merchant = getPrimaryMerchant();
   res.json({
     ok: true,
     merchant,
-    logs: db.logs.slice(0, 30)
+    logs: db.logs.slice(0, 40)
   });
 });
 
-// API: Запрос SMS от Kaspi по номеру телефона
 app.post('/api/auth/request-sms', async (req, res) => {
+  await ensureReady();
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ ok: false, error: 'Укажите номер телефона' });
   const result = await requestKaspiSmsCode(phone, 'web_user');
   res.json(result);
 });
 
-// API: Подтверждение SMS от Kaspi и авто-привязка ИП
 app.post('/api/auth/verify-sms', async (req, res) => {
+  await ensureReady();
   const { phone, smsCode, companyName } = req.body;
   const result = await verifyKaspiSmsCode({
     phone,
     smsCode,
     companyName,
     deviceInfo: {
-      deviceId: 'web_' + (req.ip || 'browser'),
-      deviceName: 'Web-Панель (Браузер)',
-      ip: req.ip
+      deviceId: 'web_' + (req.headers['x-forwarded-for'] || req.ip || 'browser'),
+      deviceName: 'Кабинет Продавца (Браузер)',
+      ip: req.headers['x-forwarded-for'] || req.ip || 'KZ'
     }
   });
   res.json(result);
 });
 
-// API: Симуляция примера (У нас 45 500 ₸, конкурент ставит 45 498 ₸ -> бот делает 45 497 ₸)
-let botInstance = null;
-app.post('/api/repricer/simulate-45498', async (req, res) => {
+// Сценарий 1: Конкурент ставит 45 900 ₸ -> наш бот ставит 45 800 ₸ (шаг 100 ₸)
+app.post('/api/repricer/simulate-45900', async (req, res) => {
+  await ensureReady();
   const merchant = getPrimaryMerchant();
   if (!merchant) return res.json({ ok: false, error: 'ИП не подключено' });
   if (!merchant.subscription.active) {
     return res.json({
       ok: false,
-      error: 'Подписка ИП отключена! Бот не сбивает цены без активной подписки ИП.'
+      error: 'Подписка ИП отключена! Демпинг-бот работает только при активной подписке ИП.'
     });
   }
 
   const prod = merchant.products[0];
+  prod.price = 46000;
+  prod.competitorPrice = 45900;
+  prod.step = 100;
+  prod.place = 2;
+  saveDb();
+
+  const result = await triggerCompetitorPriceChange(
+    merchant.id,
+    prod.id,
+    45900,
+    100,
+    async (m, ev) => {
+      if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
+    }
+  );
+  res.json(result);
+});
+
+// Сценарий 2: Конкурент ставит 45 498 ₸ -> наш бот ставит 45 497 ₸ (шаг 1 ₸)
+app.post('/api/repricer/simulate-45498', async (req, res) => {
+  await ensureReady();
+  const merchant = getPrimaryMerchant();
+  if (!merchant) return res.json({ ok: false, error: 'ИП не подключено' });
+  if (!merchant.subscription.active) {
+    return res.json({
+      ok: false,
+      error: 'Подписка ИП отключена! Демпинг-бот работает только при активной подписке ИП.'
+    });
+  }
+
+  const prod = merchant.products[1] || merchant.products[0];
   prod.price = 45500;
   prod.competitorPrice = 45498;
+  prod.step = 1;
   prod.place = 2;
   saveDb();
 
@@ -110,6 +156,7 @@ app.post('/api/repricer/simulate-45498', async (req, res) => {
     merchant.id,
     prod.id,
     45498,
+    1,
     async (m, ev) => {
       if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
     }
@@ -118,17 +165,19 @@ app.post('/api/repricer/simulate-45498', async (req, res) => {
 });
 
 app.post('/api/repricer/drop', async (req, res) => {
+  await ensureReady();
   const merchant = getPrimaryMerchant();
   if (!merchant) return res.json({ ok: false, error: 'ИП не подключено' });
   if (!merchant.subscription.active) {
     return res.json({ ok: false, error: 'Подписка ИП не активна!' });
   }
 
-  const { productId, competitorPrice } = req.body;
+  const { productId, competitorPrice, step } = req.body;
   const result = await triggerCompetitorPriceChange(
     merchant.id,
     productId,
     competitorPrice,
+    step,
     async (m, ev) => {
       if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
     }
@@ -136,8 +185,41 @@ app.post('/api/repricer/drop', async (req, res) => {
   res.json(result);
 });
 
-// API: Регистрация НКТ (NTIN)
-app.post('/api/nct/register', (req, res) => {
+app.post('/api/repricer/run', async (req, res) => {
+  await ensureReady();
+  const events = await runRepricerCycle(async (m, ev) => {
+    if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
+  });
+  res.json({ ok: true, events });
+});
+
+app.post('/api/repricer/toggle', async (req, res) => {
+  await ensureReady();
+  const merchant = getPrimaryMerchant();
+  if (!merchant) return res.json({ ok: false });
+  merchant.subscription.repricerActive = !merchant.subscription.repricerActive;
+  saveDb();
+  res.json({ ok: true, repricerActive: merchant.subscription.repricerActive });
+});
+
+app.post('/api/products/limits', async (req, res) => {
+  await ensureReady();
+  const merchant = getPrimaryMerchant();
+  if (!merchant) return res.json({ ok: false, error: 'ИП не найдено' });
+  const { productId, updates } = req.body;
+  const result = await updateProductLimits(
+    merchant.id,
+    productId,
+    updates || {},
+    async (m, ev) => {
+      if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
+    }
+  );
+  res.json(result);
+});
+
+app.post('/api/nct/register', async (req, res) => {
+  await ensureReady();
   const merchant = getPrimaryMerchant();
   if (!merchant) return res.json({ ok: false, error: 'ИП не найдено' });
   const { productId } = req.body;
@@ -145,8 +227,8 @@ app.post('/api/nct/register', (req, res) => {
   res.json(result);
 });
 
-// API: Добавление/удаление устройства (Лимит 3-4 устройства на 1 ИП)
-app.post('/api/devices/add', (req, res) => {
+app.post('/api/devices/add', async (req, res) => {
+  await ensureReady();
   const merchant = getPrimaryMerchant();
   if (!merchant) return res.json({ allowed: false, reason: 'ИП не найдено' });
   const num = merchant.devices.length + 1;
@@ -158,15 +240,27 @@ app.post('/api/devices/add', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/devices/remove', (req, res) => {
+app.post('/api/devices/remove', async (req, res) => {
+  await ensureReady();
   const merchant = getPrimaryMerchant();
   if (!merchant) return res.json({ ok: false });
   const ok = removeDeviceFromMerchant(merchant.id, req.body.deviceId);
   res.json({ ok });
 });
 
-// API: Вкл/выкл подписки ИП
-app.post('/api/subscription/toggle', (req, res) => {
+app.post('/api/devices/max', async (req, res) => {
+  await ensureReady();
+  const merchant = getPrimaryMerchant();
+  if (!merchant) return res.json({ ok: false });
+  const maxDevices = Number(req.body.maxDevices || 4);
+  merchant.maxDevices = maxDevices;
+  merchant.subscription.plan = `Тариф ИП PRO (до ${maxDevices} устройств)`;
+  saveDb();
+  res.json({ ok: true, maxDevices });
+});
+
+app.post('/api/subscription/toggle', async (req, res) => {
+  await ensureReady();
   const merchant = getPrimaryMerchant();
   if (!merchant) return res.json({ ok: false });
   merchant.subscription.active = !merchant.subscription.active;
@@ -174,34 +268,51 @@ app.post('/api/subscription/toggle', (req, res) => {
   res.json({ ok: true, subscription: merchant.subscription });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Сервер Qaspik запущен: http://localhost:${PORT}/products?context=nct&filterType=Published&currentPage=1&orderBy=NctNotRegisteredFirst`);
+// Webhook для Telegram при работе в облаке Vercel
+app.post('/api/telegram/webhook', async (req, res) => {
+  await ensureReady();
+  if (botInstance) {
+    try {
+      await botInstance.handleUpdate(req.body);
+    } catch (e) {
+      console.error('Webhook error:', e.message);
+    }
+  }
+  res.status(200).json({ ok: true });
 });
 
-// Запуск Telegram-бота @Qaspik_bot
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (token && token !== 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
-  botInstance = createTelegramBot(token);
-  botInstance
-    .launch()
-    .then(() => {
-      console.log('🤖 Telegram-бот @Qaspik_bot успешно запущен и ждет команд (/start)!');
-    })
-    .catch((err) => {
-      console.error('Ошибка запуска Telegram-бота:', err.message);
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  ensureReady().then(() => {
+    app.listen(PORT, () => {
+      console.log(
+        `🚀 Сервер Qaspik запущен: http://localhost:${PORT}/products?context=nct&filterType=Published&currentPage=1&orderBy=NctNotRegisteredFirst`
+      );
     });
 
-  process.once('SIGINT', () => botInstance.stop('SIGINT'));
-  process.once('SIGTERM', () => botInstance.stop('SIGTERM'));
+    if (botInstance) {
+      botInstance
+        .launch()
+        .then(() => {
+          console.log('🤖 Telegram-бот @Qaspik_bot запущен и мониторит цены!');
+        })
+        .catch((err) => {
+          console.error('Ошибка запуска Telegram-бота:', err.message);
+        });
+
+      process.once('SIGINT', () => botInstance.stop('SIGINT'));
+      process.once('SIGTERM', () => botInstance.stop('SIGTERM'));
+    }
+
+    const intervalSec = Number(process.env.REPRICER_INTERVAL_SEC || 10);
+    setInterval(async () => {
+      await runRepricerCycle(async (merchant, event) => {
+        if (botInstance) {
+          await notifyMerchantDevices(botInstance, merchant, event);
+        }
+      });
+    }, intervalSec * 1000);
+  });
 }
 
-// Фоновый цикл автодемпинга (-1 ₸ без участия хозяина) каждые 15 секунд
-const intervalSec = Number(process.env.REPRICER_INTERVAL_SEC || 15);
-setInterval(async () => {
-  await runRepricerCycle(async (merchant, event) => {
-    if (botInstance) {
-      await notifyMerchantDevices(botInstance, merchant, event);
-    }
-  });
-}, intervalSec * 1000);
+module.exports = app;
