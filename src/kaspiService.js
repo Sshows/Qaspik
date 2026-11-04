@@ -1,7 +1,5 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const { CookieJar } = require('tough-cookie');
-const { wrapper } = require('axios-cookiejar-support');
 const { getDb, saveDb, upsertMerchantByPhone, addLog } = require('./db');
 
 const activeCookieJars = new Map();
@@ -12,34 +10,38 @@ const activeCookieJars = new Map();
  */
 async function requestKaspiSmsCode(phone, telegramId) {
   const cleanPhone = phone.replace(/[^\d+]/g, '');
-  const jar = new CookieJar();
-  const client = wrapper(
-    axios.create({
-      jar,
-      withCredentials: true,
-      timeout: 7000,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        Accept: 'application/json, text/plain, */*',
-        'Accept-Language': 'ru-RU,ru;q=0.9,kk;q=0.8',
-        Origin: 'https://idmc.shop.kaspi.kz',
-        Referer: 'https://idmc.shop.kaspi.kz/login'
-      }
-    })
-  );
+  let storedCookies = [];
+
+  const client = axios.create({
+    timeout: 6000,
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      Accept: 'application/json, text/plain, */*',
+      'Accept-Language': 'ru-RU,ru;q=0.9,kk;q=0.8',
+      Origin: 'https://idmc.shop.kaspi.kz',
+      Referer: 'https://idmc.shop.kaspi.kz/login'
+    }
+  });
 
   let mode = 'kaspi_direct_session';
   try {
-    await client.get('https://idmc.shop.kaspi.kz/login').catch(() => null);
+    const loginPageRes = await client.get('https://idmc.shop.kaspi.kz/login').catch(() => null);
+    if (loginPageRes?.headers?.['set-cookie']) {
+      storedCookies = loginPageRes.headers['set-cookie'].map((c) => c.split(';')[0]);
+    }
     await client
-      .post('https://idmc.shop.kaspi.kz/api/p/login/phone', { phone: cleanPhone })
+      .post(
+        'https://idmc.shop.kaspi.kz/api/p/login/phone',
+        { phone: cleanPhone },
+        { headers: { Cookie: storedCookies.join('; ') } }
+      )
       .catch(() => null);
   } catch (_) {
     mode = 'kaspi_managed_session';
   }
 
-  activeCookieJars.set(cleanPhone, { jar, client, timestamp: Date.now() });
+  activeCookieJars.set(cleanPhone, { cookies: storedCookies, client, timestamp: Date.now() });
 
   const db = getDb();
   db.pendingAuth[cleanPhone] = {
@@ -85,25 +87,28 @@ async function verifyKaspiSmsCode({ phone, smsCode, deviceInfo, companyName }) {
 
   if (sessionHolder && sessionHolder.client) {
     try {
-      // Попытка подтверждения OTP и авто-извлечения токена из mc.shop.kaspi.kz
-      await sessionHolder.client
-        .post('https://idmc.shop.kaspi.kz/api/p/login/otp', {
-          phone: cleanPhone,
-          otp: code
-        })
+      const cookieHeader = (sessionHolder.cookies || []).join('; ');
+      const otpRes = await sessionHolder.client
+        .post(
+          'https://idmc.shop.kaspi.kz/api/p/login/otp',
+          { phone: cleanPhone, otp: code },
+          { headers: { Cookie: cookieHeader } }
+        )
         .catch(() => null);
 
+      if (otpRes?.headers?.['set-cookie']) {
+        const otpCookies = otpRes.headers['set-cookie'].map((c) => c.split(';')[0]);
+        cookiesString = [...(sessionHolder.cookies || []), ...otpCookies].join('; ');
+      }
+
       const tokenRes = await sessionHolder.client
-        .get('https://mc.shop.kaspi.kz/mc/api/merchant/token')
+        .get('https://mc.shop.kaspi.kz/mc/api/merchant/token', {
+          headers: { Cookie: cookiesString }
+        })
         .catch(() => null);
 
       if (tokenRes?.data?.token) {
         extractedApiToken = tokenRes.data.token;
-      }
-
-      const cookies = await sessionHolder.jar.getCookies('https://idmc.shop.kaspi.kz');
-      if (cookies.length > 0) {
-        cookiesString = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
       }
     } catch (_) {}
   }
@@ -129,7 +134,6 @@ async function verifyKaspiSmsCode({ phone, smsCode, deviceInfo, companyName }) {
     message: `Авто-вход по SMS (${cleanPhone}): Бот сам забрал API-ключ (${extractedApiToken.slice(0, 12)}...) и подключил ИП (БИН ${merchant.bin}). Устройств: ${merchant.devices.length}/${merchant.maxDevices}`
   });
 
-  // Сразу после подключения запускаем мониторинг и сбитие цен!
   await runRepricerCycle();
 
   return {
@@ -204,9 +208,8 @@ async function runRepricerCycle(onPriceDroppedCallback) {
       const currentPrice = Number(product.price);
       const compPrice = Number(product.competitorPrice);
 
-      // 1. Если конкурент поставил цену ниже или равную нашей (напр. 45 900 ₸ при нашей 46 000 ₸)
       if (compPrice > 0 && compPrice <= currentPrice) {
-        const targetPrice = compPrice - step; // напр. 45 900 - 100 = 45 800 ₸
+        const targetPrice = compPrice - step;
 
         if (targetPrice >= minPrice && targetPrice !== currentPrice) {
           const oldPrice = product.price;
@@ -250,7 +253,6 @@ async function runRepricerCycle(onPriceDroppedCallback) {
             } catch (_) {}
           }
         } else if (targetPrice < minPrice && currentPrice > minPrice) {
-          // Сработал защитный лимит минимальной цены (minPrice)
           const oldPrice = product.price;
           product.price = minPrice;
           product.place = minPrice < compPrice ? 1 : 2;
@@ -268,9 +270,7 @@ async function runRepricerCycle(onPriceDroppedCallback) {
             message: `🛡 Сработал лимит минимальной цены (${minPrice.toLocaleString('ru-RU')} ₸) для ${product.sku}: конкурент опустился до ${compPrice.toLocaleString('ru-RU')} ₸, бот остановился на лимите.`
           });
         }
-      }
-      // 2. Если мы на 1-м месте, но конкурент далеко вверху -> поднимаем цену до (compPrice - step)
-      else if (compPrice > currentPrice + step) {
+      } else if (compPrice > currentPrice + step) {
         const smartUpPrice = Math.min(maxPrice, compPrice - step);
         if (smartUpPrice > currentPrice && smartUpPrice >= minPrice) {
           const oldPrice = product.price;
@@ -300,9 +300,6 @@ async function runRepricerCycle(onPriceDroppedCallback) {
   return events;
 }
 
-/**
- * Обновление лимитов товара (minPrice, maxPrice, step, botEnabled)
- */
 async function updateProductLimits(merchantId, productId, updates, onPriceDroppedCallback) {
   const db = getDb();
   const merchant = db.merchants[merchantId];
@@ -323,9 +320,6 @@ async function updateProductLimits(merchantId, productId, updates, onPriceDroppe
   return { ok: true, product, events };
 }
 
-/**
- * Симуляция изменения цены конкурентом (например: Конкурент поставил 45 900 ₸ -> наш бот ставит 45 800 ₸!)
- */
 async function triggerCompetitorPriceChange(
   merchantId,
   productId,
