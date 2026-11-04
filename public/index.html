@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Qaspik — Kaspi Автодемпинг (-1 ₸) & НКТ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a; color: #f8fafc; }
+    .kaspi-red { background-color: #f14635; }
+    .kaspi-red:hover { background-color: #d93829; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Верхняя панель -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg kaspi-red flex items-center justify-center font-bold text-white text-lg shadow">Q</div>
+        <div>
+          <div class="font-bold text-base flex items-center gap-2">
+            Qaspik Pro
+            <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">@Qaspik_bot</span>
+          </div>
+          <div class="text-xs text-slate-400">Автодемпинг (-1 ₸) • НКТ • Подписка на ИП (до 4 устройств)</div>
+        </div>
+      </div>
+
+      <div id="merchantHeaderBadge" class="flex flex-wrap items-center gap-2">
+        <button onclick="openSmsModal()" class="kaspi-red text-white text-sm font-medium px-4 py-2 rounded-lg shadow transition">
+          📱 Войти в Kaspi по SMS
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Основной контент -->
+  <main class="max-w-7xl mx-auto w-full px-4 py-6 flex-1 space-y-6">
+    <!-- Верхние карточки статуса ИП -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">Привязанное ИП (Kaspi)</div>
+        <div id="statMerchantName" class="text-lg font-bold mt-1">Не подключено</div>
+        <div id="statMerchantBin" class="text-xs text-slate-400 mt-1">Войдите по номеру и SMS</div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">Подписка (привязана к ИП)</div>
+        <div id="statSubStatus" class="text-lg font-bold mt-1 text-emerald-400">—</div>
+        <div class="mt-2 flex gap-2">
+          <button onclick="toggleSubscription()" class="text-xs bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded border border-slate-700">
+            Вкл/Выкл подписку ИП
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">Активные устройства на 1 ИП</div>
+        <div id="statDevicesCount" class="text-lg font-bold mt-1">0 / 4</div>
+        <div class="mt-2 flex gap-2">
+          <button onclick="simulateNewDevice()" class="text-xs bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 px-2.5 py-1 rounded border border-indigo-500/40">
+            + Тест входа устройства
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div class="text-xs text-slate-400">Автодемпинг (-1 ₸ без хозяина)</div>
+        <div class="text-lg font-bold mt-1 text-amber-400">Шаг: -1 ₸ (24/7)</div>
+        <div class="mt-2">
+          <button onclick="simulatePriceWar()" class="w-full text-xs kaspi-red text-white font-semibold px-3 py-1.5 rounded shadow">
+            ⚡ Тест: Конкурент 45 498 ₸ → Мы 45 497 ₸
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Навигация (как в app.kaskyr.com/products?context=nct&filterType=Published&orderBy=NctNotRegisteredFirst) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div class="flex flex-wrap gap-2">
+          <button id="tabBtnNct" onclick="setTab('nct')" class="px-4 py-2 rounded-lg text-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+            📦 Товары & НКТ (Сначала без НКТ)
+          </button>
+          <button id="tabBtnDevices" onclick="setTab('devices')" class="px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">
+            💻 Устройства ИП (Лимит 3–4)
+          </button>
+          <button id="tabBtnLogs" onclick="setTab('logs')" class="px-4 py-2 rounded-lg text-sm font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">
+            📜 Лог сбития цен (-1 ₸)
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">context=nct</span>
+          <span class="px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">filterType=Published</span>
+          <span class="px-2.5 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">orderBy=NctNotRegisteredFirst</span>
+          <button onclick="registerAllNct()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-3 py-1.5 rounded-lg transition">
+            ✅ Зарегистрировать все в НКТ (NTIN)
+          </button>
+        </div>
+      </div>
+
+      <!-- Таблица товаров -->
+      <div id="viewProducts" class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400 text-xs uppercase">
+              <th class="py-3 px-3">Товар / SKU</th>
+              <th class="py-3 px-3">Статус НКТ (NTIN)</th>
+              <th class="py-3 px-3">Место в Kaspi</th>
+              <th class="py-3 px-3">Наша цена</th>
+              <th class="py-3 px-3">1-е место (Конкурент)</th>
+              <th class="py-3 px-3">Мин. цена (Дно)</th>
+              <th class="py-3 px-3">Бот (-1 ₸)</th>
+              <th class="py-3 px-3 text-right">Действие</th>
+            </tr>
+          </thead>
+          <tbody id="productsTableBody" class="divide-y divide-slate-800/70"></tbody>
+        </table>
+      </div>
+
+      <!-- Вкладка устройств (Лимит 3-4 устройства на 1 ИП) -->
+      <div id="viewDevices" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-base">Привязанные устройства к этому ИП</h3>
+            <p class="text-xs text-slate-400">На 1 подписку ИП разрешено максимум 3–4 устройства. 5-е устройство блокируется автоматически.</p>
+          </div>
+          <button onclick="simulateNewDevice()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-3 py-2 rounded-lg">
+            + Симулировать вход ещё 1 устройства
+          </button>
+        </div>
+        <div id="devicesListContainer" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+      </div>
+
+      <!-- Вкладка логов -->
+      <div id="viewLogs" class="hidden space-y-2 max-h-96 overflow-y-auto" id="logsContainer"></div>
+    </div>
+  </main>
+
+  <!-- Модальное окно входа в Kaspi по номеру и SMS -->
+  <div id="smsModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-lg">📱 Вход в Kaspi Кабинет (без API-ключа)</h3>
+        <button onclick="closeSmsModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <p class="text-xs text-slate-400">
+        Как в Kaskyr: клиент вводит только номер телефона от Kaspi и SMS-код. Наш сервер сам заходит в кабинет, определяет БИН ИП и включает демпинг-бот.
+      </p>
+
+      <div id="smsStep1" class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-300 block mb-1">Номер телефона хозяина Kaspi Магазина</label>
+          <input id="inputKaspiPhone" type="text" value="+77071234567" placeholder="+7 707 123 45 67"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-300 block mb-1">Название ИП (определится автоматически)</label>
+          <input id="inputCompanyName" type="text" value="ИП QASPIK MARKET"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500" />
+        </div>
+        <button onclick="sendSmsRequest()" class="w-full kaspi-red text-white font-semibold py-2.5 rounded-lg">
+          Получить SMS-код от Kaspi
+        </button>
+      </div>
+
+      <div id="smsStep2" class="hidden space-y-3">
+        <div class="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300">
+          📲 Kaspi отправил SMS на указанный номер. Введите 4 цифры кода (для теста: <b>4590</b>):
+        </div>
+        <input id="inputSmsCode" type="text" value="4590" placeholder="4590"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-center text-lg font-bold tracking-widest text-white" />
+        <button onclick="confirmSmsCode()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg">
+          ✅ Подтвердить SMS и привязать ИП
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentMerchant = null;
+    let currentTab = 'nct';
+
+    async function loadState() {
+      const res = await fetch('/api/state');
+      const data = await res.json();
+      currentMerchant = data.merchant;
+      renderAll(data.logs || []);
+    }
+
+    function renderAll(logs = []) {
+      const m = currentMerchant;
+      if (!m) return;
+
+      document.getElementById('statMerchantName').textContent = `${m.name}`;
+      document.getElementById('statMerchantBin').textContent = `БИН: ${m.bin} • Тел: ${m.phone}`;
+
+      const subEl = document.getElementById('statSubStatus');
+      if (m.subscription.active) {
+        subEl.textContent = '✅ Активна (на ИП)';
+        subEl.className = 'text-lg font-bold mt-1 text-emerald-400';
+      } else {
+        subEl.textContent = '⛔ Остановлена';
+        subEl.className = 'text-lg font-bold mt-1 text-red-400';
+      }
+
+      document.getElementById('statDevicesCount').textContent = `${m.devices.length} из ${m.maxDevices} устройств`;
+
+      // Сортируем товары как в ссылке: filterType=Published & orderBy=NctNotRegisteredFirst
+      const sorted = [...(m.products || [])].sort((a, b) => {
+        if (a.nctStatus === 'NotRegistered' && b.nctStatus !== 'NotRegistered') return -1;
+        if (a.nctStatus !== 'NotRegistered' && b.nctStatus === 'NotRegistered') return 1;
+        return 0;
+      });
+
+      const tbody = document.getElementById('productsTableBody');
+      tbody.innerHTML = sorted.map(p => {
+        const nctBadge = p.nctStatus === 'Registered'
+          ? `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs">✅ NTIN: ${p.ntin}</span>`
+          : `<span class="px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-medium">🔴 Не зарегистрирован в НКТ</span>`;
+
+        const placeBadge = p.place === 1
+          ? `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-xs">🥇 1 место</span>`
+          : `<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-xs">🥈 ${p.place} место</span>`;
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-3">
+              <div class="font-medium text-white">${p.title}</div>
+              <div class="text-xs text-slate-400">SKU: ${p.sku} • GTIN: ${p.gtin}</div>
+            </td>
+            <td class="py-3 px-3">${nctBadge}</td>
+            <td class="py-3 px-3">${placeBadge}</td>
+            <td class="py-3 px-3 font-bold text-base text-white">${p.price.toLocaleString('ru-RU')} ₸</td>
+            <td class="py-3 px-3 text-slate-300">
+              ${p.competitorPrice.toLocaleString('ru-RU')} ₸
+              <div class="text-xs text-slate-500">${p.competitorName}</div>
+            </td>
+            <td class="py-3 px-3 text-xs text-slate-400">${p.minPrice.toLocaleString('ru-RU')} ₸</td>
+            <td class="py-3 px-3">
+              <span class="text-xs px-2 py-1 rounded ${p.botEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'}">
+                ${p.botEnabled ? '🟢 Авто -1 ₸' : 'Выкл'}
+              </span>
+            </td>
+            <td class="py-3 px-3 text-right space-x-1">
+              ${p.nctStatus !== 'Registered' ? `<button onclick="registerSingleNct('${p.id}')" class="text-xs bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 px-2.5 py-1 rounded border border-emerald-500/30">+ НКТ</button>` : ''}
+              <button onclick="dropCompetitorForProduct('${p.id}', ${p.price - 2})" class="text-xs bg-red-500/20 hover:bg-red-500/40 text-red-300 px-2.5 py-1 rounded border border-red-500/30">
+                Сбить цену (-1 ₸)
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Рендер устройств
+      const devContainer = document.getElementById('devicesListContainer');
+      devContainer.innerHTML = m.devices.map((d, i) => `
+        <div class="bg-slate-800/70 border border-slate-700 rounded-xl p-3 flex items-center justify-between">
+          <div>
+            <div class="font-semibold text-sm">${i + 1}. 💻 ${d.deviceName}</div>
+            <div class="text-xs text-slate-400">${d.role} • ID: ${d.deviceId} • IP: ${d.ip || 'KZ'}</div>
+          </div>
+          <button onclick="kickDevice('${d.deviceId}')" class="text-xs bg-red-500/20 hover:bg-red-500/40 text-red-300 px-2.5 py-1 rounded border border-red-500/30">
+            Отключить
+          </button>
+        </div>
+      `).join('');
+
+      // Рендер логов
+      const logsEl = document.getElementById('viewLogs');
+      logsEl.innerHTML = logs.length === 0
+        ? `<div class="text-sm text-slate-400">Пока нет событий. Нажмите «Тест: Конкурент 45 498 ₸ → Мы 45 497 ₸».</div>`
+        : logs.map(l => `
+          <div class="bg-slate-800/60 border border-slate-800 rounded-lg px-3 py-2 text-xs flex justify-between">
+            <span>${l.message}</span>
+            <span class="text-slate-500">${new Date(l.timestamp).toLocaleTimeString('ru-RU')}</span>
+          </div>
+        `).join('');
+    }
+
+    function setTab(tab) {
+      currentTab = tab;
+      document.getElementById('viewProducts').classList.toggle('hidden', tab !== 'nct');
+      document.getElementById('viewDevices').classList.toggle('hidden', tab !== 'devices');
+      document.getElementById('viewLogs').classList.toggle('hidden', tab !== 'logs');
+    }
+
+    function openSmsModal() {
+      document.getElementById('smsModal').classList.remove('hidden');
+      document.getElementById('smsModal').classList.add('flex');
+      document.getElementById('smsStep1').classList.remove('hidden');
+      document.getElementById('smsStep2').classList.add('hidden');
+    }
+
+    function closeSmsModal() {
+      document.getElementById('smsModal').classList.add('hidden');
+      document.getElementById('smsModal').classList.remove('flex');
+    }
+
+    async function sendSmsRequest() {
+      const phone = document.getElementById('inputKaspiPhone').value;
+      await fetch('/api/auth/request-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      document.getElementById('smsStep1').classList.add('hidden');
+      document.getElementById('smsStep2').classList.remove('hidden');
+    }
+
+    async function confirmSmsCode() {
+      const phone = document.getElementById('inputKaspiPhone').value;
+      const smsCode = document.getElementById('inputSmsCode').value;
+      const companyName = document.getElementById('inputCompanyName').value;
+      const res = await fetch('/api/auth/verify-sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, smsCode, companyName })
+      });
+      const data = await res.json();
+      if (!data.ok) return alert(data.error);
+      if (!data.deviceAuthResult.allowed) alert(data.deviceAuthResult.reason);
+      closeSmsModal();
+      loadState();
+    }
+
+    async function simulatePriceWar() {
+      const res = await fetch('/api/repricer/simulate-45498', { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) return alert(data.error);
+      loadState();
+    }
+
+    async function dropCompetitorForProduct(productId, compPrice) {
+      const res = await fetch('/api/repricer/drop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, competitorPrice: compPrice })
+      });
+      const data = await res.json();
+      if (!data.ok) return alert(data.error);
+      loadState();
+    }
+
+    async function registerAllNct() {
+      await fetch('/api/nct/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: 'ALL' })
+      });
+      loadState();
+    }
+
+    async function registerSingleNct(productId) {
+      await fetch('/api/nct/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId })
+      });
+      loadState();
+    }
+
+    async function simulateNewDevice() {
+      const res = await fetch('/api/devices/add', { method: 'POST' });
+      const data = await res.json();
+      if (!data.allowed) {
+        alert('⛔ БЛОКИРОВКА ЛИМИТА УСТРОЙСТВ:\n' + data.reason);
+      }
+      loadState();
+    }
+
+    async function kickDevice(deviceId) {
+      await fetch('/api/devices/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId })
+      });
+      loadState();
+    }
+
+    async function toggleSubscription() {
+      await fetch('/api/subscription/toggle', { method: 'POST' });
+      loadState();
+    }
+
+    loadState();
+    setInterval(loadState, 5000);
+  </script>
+</body>
+</html>
