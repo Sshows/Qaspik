@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const { createPilotRouter } = require('./src/pilotRoutes');
 
 const {
   getDb,
@@ -18,11 +19,12 @@ const {
 const { createTelegramBot, createTelegramWebhookHandler } = require('./src/telegramBot');
 
 const app = express();
+const demoWritable = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
+app.use('/api/pilot', createPilotRouter(demoWritable));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const demoMerchant = createDemoMerchant();
-const demoWritable = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
 
 function getDemoMerchant(id) {
   return id === undefined || id === demoMerchant.id ? demoMerchant : null;

@@ -1256,6 +1256,76 @@
       </main>
 
       <main class="workspace" id="page-settings" style="display:none;">
+        <section class="panel settings-panel" aria-labelledby="pilotHeading" style="margin-bottom:16px;">
+          <div class="panel-title">
+            <h2 id="pilotHeading">Пилот для магазина Kaspi</h2>
+            <span class="status-pill disabled">10 000 ₸ / мес.</span>
+          </div>
+          <p class="settings-help">Загрузите полный XML, выберите товары и проверьте расчёт перед запуском воркера.</p>
+          <p id="pilotAvailability" class="settings-help"></p>
+          <form id="pilotForm" class="settings-form">
+            <fieldset id="pilotFields" class="settings-fields" disabled>
+              <div class="field">
+                <label for="pilotXml">Полный XML из кабинета продавца</label>
+                <input id="pilotXml" type="file" accept=".xml,text/xml,application/xml" />
+              </div>
+              <div><button id="pilotExample" class="btn" type="button">Открыть учебный пример</button></div>
+              <div class="field">
+                <label for="pilotExpiry">Дата окончания доступа (местное время)</label>
+                <input id="pilotExpiry" type="datetime-local" required />
+              </div>
+              <label class="settings-auto-raise"><input id="pilotEnabled" type="checkbox" /> Воркер включён</label>
+              <div class="field">
+                <label for="pilotStep">Обычный шаг (₸)</label>
+                <input id="pilotStep" type="number" min="1" step="1" value="100" required />
+              </div>
+              <div class="field">
+                <label for="pilotWindow">Расстояние до порога для шага 1 ₸ (₸)</label>
+                <input id="pilotWindow" type="number" min="0" step="1" value="200" required />
+              </div>
+              <div class="field">
+                <label for="pilotFloor">Если конкурент достиг вашего минимума</label>
+                <select id="pilotFloor">
+                  <option value="hold">Оставить текущую цену</option>
+                  <option value="minimum">Установить минимальную цену товара</option>
+                </select>
+              </div>
+              <label class="settings-auto-raise"><input id="pilotAutoRaise" type="checkbox" /> Разрешить автоповышение</label>
+              <div class="field">
+                <label for="pilotOffer">Товар и город из XML</label>
+                <select id="pilotOffer" disabled><option value="">Сначала откройте XML</option></select>
+              </div>
+              <div><button id="pilotAddOffer" class="btn" type="button" disabled>Добавить товар</button></div>
+              <div id="pilotRules" class="settings-fields" style="grid-column:1/-1;"></div>
+              <div class="field">
+                <label for="pilotObservations">Файл наблюдений observations.json</label>
+                <input id="pilotObservations" type="file" accept=".json,application/json" />
+                <small class="settings-help">Можно использовать файл или указать цены и время наблюдения вручную.</small>
+              </div>
+              <details class="settings-config" style="grid-column:1/-1;">
+                <summary>Фильтры конкурентов</summary>
+                <p class="settings-help">При включённом фильтре загрузите файл с отдельными предложениями продавцов.</p>
+                <div class="settings-fields">
+                  <div class="field"><label for="pilotRating">Минимальный рейтинг</label><input id="pilotRating" type="number" min="0" max="5" step="0.1" /></div>
+                  <div class="field"><label for="pilotReviews">Минимум отзывов</label><input id="pilotReviews" type="number" min="0" step="1" /></div>
+                  <div class="field"><label for="pilotPreorder">Максимум дней предзаказа</label><input id="pilotPreorder" type="number" min="0" step="1" /></div>
+                  <div class="field"><label for="pilotDelivery">Категории доставки через запятую</label><input id="pilotDelivery" type="text" /></div>
+                  <div class="field"><label for="pilotExcluded">Исключённые ID магазинов через запятую</label><input id="pilotExcluded" type="text" /></div>
+                </div>
+              </details>
+              <div><button id="pilotPreview" class="btn btn-primary" type="submit">Рассчитать будущие цены</button></div>
+            </fieldset>
+          </form>
+          <p id="pilotStatus" class="settings-help" role="status" style="margin:12px 0;"></p>
+          <ul id="pilotResults" style="padding-left:20px;" hidden></ul>
+          <div id="pilotDownloads" hidden style="margin-top:12px;">
+            <button class="btn" type="button" data-pilot-download="pilot.json">Скачать правила</button>
+            <button class="btn" type="button" data-pilot-download="observations.json">Скачать наблюдения</button>
+            <button class="btn" type="button" data-pilot-download="catalog.xml">Скачать полный XML</button>
+            <p class="settings-help">Сохраните три файла в одной папке. Инструкция запуска воркера есть в README проекта.</p>
+          </div>
+        </section>
+
         <section class="panel settings-panel" aria-labelledby="defaultsHeading">
           <div class="panel-title">
             <h2 id="defaultsHeading">Правила расчёта по умолчанию</h2>
@@ -1301,27 +1371,28 @@
       <main class="workspace" id="page-integration" aria-labelledby="pilotSetupTitle" style="display:none;">
         <div class="panel">
           <div class="panel-title" style="gap:8px; flex-wrap:wrap;">
-            <h2 id="pilotSetupTitle" tabindex="-1" style="font-size:inherit; font-weight:inherit; margin:0;">Настройка XML-пилота Kaspi</h2>
-            <span class="status-pill disabled">Демо · магазин не подключён</span>
+            <h2 id="pilotSetupTitle" tabindex="-1" style="font-size:inherit; font-weight:inherit; margin:0;">Подключение прайса Kaspi</h2>
+            <span class="status-pill disabled">Демо · магазин Kaspi не подключён</span>
           </div>
-          <p style="color:var(--text-secondary);">Пилот запускается отдельно на компьютере оператора. В этой панели показаны учебные товары.</p>
+          <p style="color:var(--text-secondary);">В панели показан учебный каталог.</p>
           <ol style="display:grid; gap:14px; margin:16px 0; padding-left:22px;">
             <li>
-              <strong>Выгрузите полный XML-прайс.</strong>
-              Скачайте прайс из кабинета продавца, сохраните оригинал отдельно и поместите рабочую копию <code>catalog.xml</code> в папку пилота.
+              <strong>Скачайте полный XML-прайс.</strong>
+              В веб-кабинете продавца Kaspi откройте «Управление товарами» → «Прайс-лист» и скачайте XML со всеми товарами. Сохраните исходный файл отдельно.
             </li>
             <li>
-              <strong>Проверьте расчёт на копии.</strong>
-              Укажите товары, пороги и шаги в <code>pilot.json</code>, а свежие цены конкурентов с фактическим временем наблюдения в <code>observations.json</code>.
-              Сначала выполните <code>node scripts/kaspi-pilot.js plan &lt;папка&gt;</code>, затем примените проверенный расчёт командой <code>apply</code> вместо <code>plan</code>.
+              <strong>Подготовьте настройки пилота.</strong>
+              Нажмите «Настроить пилот», загрузите XML, выберите товары, проверьте предварительный расчёт и выгрузите файлы для запуска.
             </li>
             <li>
-              <strong>Укажите ссылку в кабинете продавца.</strong>
-              Разместите проверенный полный XML на своём HTTPS-сервере и добавьте ссылку в разделе автоматической загрузки прайса Kaspi.
-              Kaspi загружает изменённый файл раз в час.
+              <strong>Запустите воркер и подключите прайс.</strong>
+              Владелец магазина запускает воркер, размещает полный XML по доступной HTTPS-ссылке и добавляет её в кабинете продавца. Раздел находится в «Товары» → «Загрузить прайс-лист» → «Автоматическая загрузка».
             </li>
           </ol>
-          <a class="btn btn-primary" style="text-decoration:none;" href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q3251" target="_blank" rel="noopener noreferrer">Инструкция Kaspi по автозагрузке</a>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <button type="button" class="btn btn-primary" onclick="switchPage('settings')">Настроить пилот</button>
+            <a class="btn" style="text-decoration:none;" href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q3251" target="_blank" rel="noopener noreferrer">Инструкция Kaspi по автозагрузке</a>
+          </div>
         </div>
       </main>
 
@@ -1512,6 +1583,7 @@
         if (data.ok && data.merchant) {
           appState.merchant = data.merchant;
           appState.demoWritable = data.demoWritable;
+          window.setPilotAvailable?.(data.demoWritable);
           appState.logs = data.logs || [];
           renderAll();
         }
@@ -2162,5 +2234,6 @@
     initFromUrl();
     fetchState();
   </script>
+  <script src="/pilot-settings.js"></script>
 </body>
 </html>

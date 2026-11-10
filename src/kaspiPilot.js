@@ -37,6 +37,73 @@ function isFloorStrategy(value) {
   return value === 'hold' || value === 'minimum';
 }
 
+function isMerchantId(value) {
+  return typeof value === 'string' && /^[0-9]+$/.test(value);
+}
+
+function isRating(value) {
+  return Number.isFinite(value) && value >= 0 && value <= 5;
+}
+
+function isDeliveryCategory(value) {
+  return typeof value === 'string' && value.length > 0 && value === value.trim();
+}
+
+function readCompetitorFilters(filters = {}) {
+  const validators = {
+    excludedMerchantIds: (value) => Array.isArray(value) && value.every(isMerchantId),
+    minRating: isRating,
+    minReviews: isNonNegativeInteger,
+    maxPreorderDays: isNonNegativeInteger,
+    deliveryCategories: (value) => Array.isArray(value) && value.every(isDeliveryCategory)
+  };
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters) ||
+    Object.entries(filters).some(([field, value]) => !Object.hasOwn(validators, field) || !validators[field](value))) {
+    throw new Error('Проверьте настройки defaults.filters в pilot.json');
+  }
+  return filters;
+}
+
+function readObservedCompetitor(offer, merchantId, filters) {
+  const { competitorPrice, competitors, observedAt } = offer;
+  const timestamp = utcMillis(observedAt);
+  const { excludedMerchantIds = [], minRating, minReviews, maxPreorderDays, deliveryCategories = [] } = filters;
+  if (competitors === undefined) {
+    if (!isPositiveInteger(competitorPrice)) {
+      throw new Error('Укажите целую положительную цену конкурента для артикула и города');
+    }
+    if (excludedMerchantIds.length || minRating !== undefined || minReviews !== undefined ||
+      maxPreorderDays !== undefined || deliveryCategories.length) {
+      return { timestamp, code: 'COMPETITOR_DETAILS_REQUIRED' };
+    }
+    return { timestamp, price: competitorPrice };
+  }
+  if (!Array.isArray(competitors) || competitorPrice !== undefined) {
+    throw new Error('Для наблюдения укажите массив competitors или цену competitorPrice');
+  }
+
+  let cheapest;
+  for (const competitor of competitors) {
+    const { merchantId: seller, price, rating, reviewCount, preorderDays, deliveryCategory } = competitor ?? {};
+    if (!isMerchantId(seller) || !isPositiveInteger(price) ||
+      (rating !== undefined && !isRating(rating)) ||
+      (reviewCount !== undefined && !isNonNegativeInteger(reviewCount)) ||
+      (preorderDays !== undefined && !isNonNegativeInteger(preorderDays)) ||
+      (deliveryCategory !== undefined && !isDeliveryCategory(deliveryCategory))) {
+      throw new Error('Проверьте данные продавца в массиве competitors');
+    }
+    if (seller === merchantId || excludedMerchantIds.includes(seller) ||
+      (minRating !== undefined && (rating === undefined || rating < minRating)) ||
+      (minReviews !== undefined && (reviewCount === undefined || reviewCount < minReviews)) ||
+      (maxPreorderDays !== undefined && (preorderDays === undefined || preorderDays > maxPreorderDays)) ||
+      (deliveryCategories.length && !deliveryCategories.includes(deliveryCategory))) {
+      continue;
+    }
+    if (cheapest === undefined || price < cheapest) cheapest = price;
+  }
+  return cheapest === undefined ? { timestamp, code: 'NO_ELIGIBLE_COMPETITORS' } : { timestamp, price: cheapest };
+}
+
 function offerKey(sku, cityId) {
   if (typeof sku !== 'string' || !/^[A-Za-z0-9_-]{1,20}$/.test(sku)) {
     throw new Error('Укажите корректный артикул продавца');
@@ -52,7 +119,7 @@ function planPilotPrices(xml, config, observations, nowMs) {
   if (!access.active) return { changes: [], decisions: [] };
 
   const { merchantId, maxObservationAgeSeconds, products, defaults = {} } = config;
-  if (typeof merchantId !== 'string' || !/^[0-9]+$/.test(merchantId)) {
+  if (!isMerchantId(merchantId)) {
     throw new Error('Укажите merchantId из полного прайс-листа');
   }
   if (!isPositiveInteger(maxObservationAgeSeconds) || maxObservationAgeSeconds > MAX_OBSERVATION_AGE_SECONDS) {
@@ -70,6 +137,7 @@ function planPilotPrices(xml, config, observations, nowMs) {
   ) {
     throw new Error('Проверьте настройки defaults в pilot.json');
   }
+  const filters = readCompetitorFilters(defaults.filters);
   if (observations?.merchantId !== merchantId || !Array.isArray(observations.offers)) {
     throw new Error('observations.json должен содержать merchantId пилота и массив offers');
   }
@@ -89,10 +157,10 @@ function planPilotPrices(xml, config, observations, nowMs) {
   const market = new Map();
   for (const offer of observations.offers) {
     const key = offerKey(offer?.sku, offer?.cityId);
-    if (market.has(key) || !isPositiveInteger(offer.competitorPrice)) {
-      throw new Error('Укажите одну целую положительную цену конкурента для каждого артикула и города');
+    if (market.has(key)) {
+      throw new Error('Укажите одно наблюдение для каждого артикула и города');
     }
-    market.set(key, { price: offer.competitorPrice, timestamp: utcMillis(offer.observedAt) });
+    market.set(key, readObservedCompetitor(offer, merchantId, filters));
   }
 
   const tracked = new Set();
@@ -127,6 +195,8 @@ function planPilotPrices(xml, config, observations, nowMs) {
       decision.code = 'NO_OBSERVATION';
     } else if (observed.timestamp > nowMs || nowMs - observed.timestamp > maxObservationAgeSeconds * 1000) {
       decision.code = 'OBSERVATION_OUT_OF_DATE';
+    } else if (observed.code) {
+      decision.code = observed.code;
     } else if (observed.price <= minPrice || current < minPrice) {
       decision.code = 'FLOOR_GUARD';
       if (atFloor === 'minimum' && current > minPrice) {
