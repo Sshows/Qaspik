@@ -1,10 +1,11 @@
 {
   "name": "qaspik",
   "version": "1.0.0",
-  "description": "Qaspik — Kaspi Автодемпинг (-1 ₸), НКТ (NTIN) и привязка подписки к ИП (до 4 устройств) + Telegram-бот @Qaspik_bot",
+  "description": "Qaspik — демо расчёта цен, проверка формата NTIN и вебхук Telegram",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test"
   },
   "repository": {
     "type": "git",
@@ -19,13 +20,10 @@
   ],
   "license": "ISC",
   "dependencies": {
-    "@supabase/supabase-js": "^2.118.0",
+    "@xmldom/xmldom": "0.9.12",
     "axios": "^1.13.6",
-    "axios-cookiejar-support": "^6.0.5",
-    "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "telegraf": "^4.16.3",
-    "tough-cookie": "^6.0.1"
+    "telegraf": "^4.16.3"
   }
 }

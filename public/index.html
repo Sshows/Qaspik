@@ -1069,7 +1069,7 @@
             <div class="store-name" id="sidebarStoreName">Загрузка...</div>
             <div class="store-status">
               <span class="status-dot" id="sidebarBotDot"></span>
-              <span id="sidebarBotStatusText">Бот в кабинете</span>
+              <span id="sidebarBotStatusText">Демо-режим</span>
             </div>
           </div>
         </div>
@@ -1091,8 +1091,7 @@
           <span class="nav-badge" id="badgeTotalProducts">0</span>
         </button>
         <button class="nav-item nav-subitem" id="nav-nct" onclick="switchPage('products', 'nct')">
-          <span class="nav-item-left">🏷 Регистрация НКТ</span>
-          <span class="nav-badge" id="badgeUnregNct">0</span>
+          <span class="nav-item-left">🏷 Проверка НКТ</span>
         </button>
         <button class="nav-item" id="nav-integration" onclick="switchPage('integration')">
           <span class="nav-item-left">🔌 Кабинет Kaspi</span>
@@ -1126,14 +1125,13 @@
         </div>
         <div class="topbar-right">
           <div class="worker-pill">
-            <span>Автобот в кабинете:</span>
+            <span>Демо-репрайсер:</span>
             <label class="switch">
               <input type="checkbox" id="globalBotSwitch" checked onchange="toggleGlobalBot()" />
               <span class="slider"></span>
             </label>
           </div>
-          <button class="btn" onclick="syncWithKaspi()" id="syncBtn">🔄 Синхронизировать</button>
-          <button class="btn btn-primary" onclick="openIntegrationModal()">Подключить Kaspi</button>
+          <button class="btn btn-primary" onclick="openIntegrationModal()">Подключение Kaspi</button>
         </div>
       </header>
 
@@ -1153,6 +1151,9 @@
             <button class="filter-pill" data-filter="NOT_FIRST" onclick="setStatusFilter('NOT_FIRST')">
               Ниже 1-го места <span id="countNotFirst">0</span>
             </button>
+            <button class="filter-pill" data-filter="FLOOR" onclick="setStatusFilter('FLOOR')">
+              Сработал порог <span id="countFloor">0</span>
+            </button>
           </div>
 
           <div class="toolbar-controls">
@@ -1163,13 +1164,13 @@
             <select class="sort-select" id="sortSelect" onchange="renderProductsTable()">
               <option value="DampingFirst">Сначала демпингующиеся</option>
               <option value="NotFirstPlace">Сначала не на 1-м месте</option>
-              <option value="NctNotRegisteredFirst">Сначала без НКТ</option>
+              <option value="NctNotRegisteredFirst">Сначала без NTIN</option>
               <option value="PriceDesc">Сначала дорогие</option>
               <option value="PriceAsc">Сначала дешевые</option>
             </select>
-            <button class="btn btn-primary" id="btnRegisterAllNct" style="display:none;" onclick="registerNct('ALL')">
-              Зарегистрировать все в НКТ
-            </button>
+            <a class="btn btn-primary" id="nctCatalogLink" href="https://nationalcatalog.kz/" target="_blank" rel="noopener noreferrer" style="display:none; text-decoration:none;">
+              Открыть каталог НКТ
+            </a>
           </div>
         </div>
 
@@ -1183,39 +1184,13 @@
 
       <!-- PAGE: INTEGRATION -->
       <main class="workspace" id="page-integration" style="display:none;">
-        <div class="cards-grid">
-          <div class="panel">
-            <div class="panel-title">
-              <span>Статус подключения к личному кабинету Kaspi</span>
-              <span class="status-pill working" id="intStatusBadge">Активен</span>
-            </div>
-            <div style="display:flex; flex-direction:column; gap:10px; font-size:13.5px;">
-              <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-soft);">
-                <span style="color:var(--text-secondary);">Магазин Kaspi:</span>
-                <strong id="intStoreName">—</strong>
-              </div>
-              <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-soft);">
-                <span style="color:var(--text-secondary);">БИН ИП:</span>
-                <strong id="intStoreBin">—</strong>
-              </div>
-              <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-soft);">
-                <span style="color:var(--text-secondary);">Номер владельца:</span>
-                <strong id="intStorePhone">—</strong>
-              </div>
-              <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-soft);">
-                <span style="color:var(--text-secondary);">Сессия бота в кабинете (mc.shop.kaspi.kz):</span>
-                <strong id="intBotLogin" style="color:var(--kaspi-red);">—</strong>
-              </div>
-              <div style="display:flex; justify-content:space-between; padding:8px 0;">
-                <span style="color:var(--text-secondary);">Авто-токен Kaspi API:</span>
-                <code id="intApiToken" style="background:#F3F4F6; padding:2px 6px; border-radius:4px;">—</code>
-              </div>
-            </div>
-            <div style="margin-top:16px; display:flex; gap:10px;">
-              <button class="btn btn-primary" onclick="openIntegrationModal()">Переподключить по СМС</button>
-              <button class="btn" onclick="syncWithKaspi()">Проверить цены сейчас</button>
-            </div>
+        <div class="panel">
+          <div class="panel-title">
+            <span>Подключение магазина Kaspi</span>
+            <span class="status-pill disabled">Недоступно</span>
           </div>
+          <p>Панель показывает демонстрационный каталог. Расчёты выполняются на тестовых данных.</p>
+          <a class="btn" href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q2962" target="_blank" rel="noopener">Как настроить прайс-лист в Kaspi</a>
         </div>
       </main>
 
@@ -1224,21 +1199,17 @@
         <div class="cards-grid">
           <div class="panel">
             <div class="panel-title">
-              <span>Подписка ИП</span>
+              <span>Подписка в демо</span>
               <span class="status-pill working" id="subActiveBadge">Активна</span>
             </div>
             <div style="display:flex; flex-direction:column; gap:10px; font-size:13.5px;">
               <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-soft);">
-                <span style="color:var(--text-secondary);">Привязка к ИП (БИН):</span>
+                <span style="color:var(--text-secondary);">Магазин:</span>
                 <strong id="subBinText">—</strong>
               </div>
               <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-soft);">
                 <span style="color:var(--text-secondary);">Тариф:</span>
                 <strong id="subPlanText">—</strong>
-              </div>
-              <div style="display:flex; justify-content:space-between; padding:8px 0;">
-                <span style="color:var(--text-secondary);">Инвайт-код для менеджеров:</span>
-                <strong id="subInviteText" style="color:var(--kaspi-red);">—</strong>
               </div>
             </div>
             <div style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap;">
@@ -1262,7 +1233,7 @@
       <main class="workspace" id="page-logs" style="display:none;">
         <div class="panel">
           <div class="panel-title">
-            <span>История работы бота в кабинете Kaspi</span>
+            <span>История расчётов в демо</span>
             <button class="btn" style="height:30px; font-size:12px;" onclick="fetchState()">Обновить</button>
           </div>
           <div id="logsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -1298,14 +1269,22 @@
         </div>
 
         <div style="font-size:12.5px; font-weight:600; color:var(--text-secondary);">
-          Таблица продавцов на Kaspi.kz (Кто ставит цену ниже — встает на 1-е место)
+          Продавцы в демонстрационной карточке
         </div>
 
         <div class="standings-list" id="drawerStandingsList"></div>
 
+        <form id="drawerCompForm" hidden onsubmit="event.preventDefault(); submitDrawerCompetitorPrice();">
+          <div class="field">
+            <label for="drawerCompInput">Новая цена конкурента в демо (₸)</label>
+            <input type="number" id="drawerCompInput" min="1" step="1" required />
+          </div>
+          <button class="btn" type="submit">Пересчитать цену</button>
+        </form>
+
         <div style="background:#F9FAFB; border:1px solid var(--border); border-radius:8px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between;">
           <div style="font-size:12.5px; color:var(--text-secondary);">
-            🤖 <strong>Автономный режим 24/7:</strong> Бот сам отслеживает эту карточку и перебивает цены без вашего участия, блокируя обвалы ниже порога.
+            Измените цену конкурента в локальном демо, чтобы проверить, как минимальный порог влияет на расчёт.
           </div>
           <button class="btn" style="flex-shrink:0;" onclick="openLimitsModal(appState.activeDrawerProductId)">Порог ✎</button>
         </div>
@@ -1322,11 +1301,11 @@
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>Текущая цена в кабинете Kaspi (₸)</label>
+          <label>Текущая цена в демо (₸)</label>
           <input type="number" id="modalCurrentPrice" />
         </div>
         <div class="field">
-          <label>🛡 Защитный порог от мошенников (ниже этой цены бот не спускается, ₸)</label>
+          <label>Минимальная цена (₸)</label>
           <input type="number" id="modalMinPrice" />
         </div>
         <div class="field">
@@ -1334,8 +1313,12 @@
           <input type="number" id="modalMaxPrice" />
         </div>
         <div class="field">
-          <label>Шаг опережения конкурента (₸, напр. 10 ₸: конкурент -100 ₸ → бот -110 ₸)</label>
-          <input type="number" id="modalStepPrice" />
+          <label for="modalStepPrice">Обычный шаг опережения (₸)</label>
+          <input type="number" id="modalStepPrice" min="1" />
+        </div>
+        <div class="field">
+          <label for="modalNearFloor">Переход на шаг 1 ₸, если до порога осталось (₸)</label>
+          <input type="number" id="modalNearFloor" min="0" />
         </div>
         <div class="field">
           <label>Закупочная цена (₸)</label>
@@ -1350,51 +1333,6 @@
   </div>
 
   <!-- MODAL: 3-ШАГОВОЕ ПОДКЛЮЧЕНИЕ МАГАЗИНА KASPI (БЕЗ РУЧНОГО API КЛЮЧА) -->
-  <div class="modal-backdrop" id="integrationModal" onclick="if(event.target===this) closeIntegrationModal()">
-    <div class="modal">
-      <div class="modal-header">
-        <span>Подключение магазина Kaspi.kz</span>
-        <button class="close-x" onclick="closeIntegrationModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="stepper">
-          <div class="step-chip active" id="wizStepChip1">1. Номер телефона</div>
-          <div class="step-chip" id="wizStepChip2">2. СМС-код</div>
-          <div class="step-chip" id="wizStepChip3">3. Магазин</div>
-        </div>
-
-        <!-- STEP 1 -->
-        <div id="wizStep1" style="display:flex; flex-direction:column; gap:12px;">
-          <div class="field">
-            <label>Номер телефона владельца кабинета Kaspi Seller</label>
-            <input type="tel" id="wizPhoneInput" value="+77071234567" placeholder="+7 (7XX) XXX-XX-XX" />
-          </div>
-          <button class="btn btn-primary" style="width:100%;" onclick="wizSendOtp()">Получить СМС-код от Kaspi</button>
-        </div>
-
-        <!-- STEP 2 -->
-        <div id="wizStep2" style="display:none; flex-direction:column; gap:12px;">
-          <div class="field">
-            <label>4-значный код из СМС</label>
-            <input type="text" id="wizOtpInput" maxlength="6" value="4590" placeholder="Например: 4590" />
-          </div>
-          <button class="btn btn-primary" style="width:100%;" onclick="wizVerifyOtp()">Подтвердить код</button>
-        </div>
-
-        <!-- STEP 3 -->
-        <div id="wizStep3" style="display:none; flex-direction:column; gap:12px;">
-          <div class="field">
-            <label>Выберите магазин для внедрения бота</label>
-            <select id="wizMerchantSelect"></select>
-          </div>
-          <button class="btn btn-primary" style="width:100%;" onclick="wizCompleteIntegration()">
-            Подключить бота в личный кабинет
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="toast" id="toastEl"></div>
 
   <script>
@@ -1406,8 +1344,7 @@
       statusFilter: 'ALL',
       activeDrawerProductId: null,
       editingProductId: null,
-      wizRootCookie: null,
-      wizMerchants: []
+      demoWritable: false
     };
 
     function initFromUrl() {
@@ -1435,12 +1372,13 @@
       return Number(n || 0).toLocaleString('ru-RU') + ' ₸';
     }
 
-    async function fetchState(autoTick = false) {
+    async function fetchState() {
       try {
-        const res = await fetch(autoTick ? '/api/state?autoTick=1' : '/api/state');
+        const res = await fetch('/api/state');
         const data = await res.json();
         if (data.ok && data.merchant) {
           appState.merchant = data.merchant;
+          appState.demoWritable = data.demoWritable;
           appState.logs = data.logs || [];
           renderAll();
         }
@@ -1506,18 +1444,19 @@
       const isBotActive = m.subscription?.active && m.subscription?.repricerActive;
       document.getElementById('sidebarBotDot').className = 'status-dot' + (isBotActive ? '' : ' off');
       document.getElementById('sidebarBotStatusText').textContent = isBotActive
-        ? 'Бот в кабинете активен'
+        ? 'Демо-репрайсер активен'
         : 'На паузе';
-      document.getElementById('globalBotSwitch').checked = Boolean(isBotActive);
+      const globalSwitch = document.getElementById('globalBotSwitch');
+      globalSwitch.checked = Boolean(isBotActive);
+      globalSwitch.disabled = !appState.demoWritable;
+      document.getElementById('citySelector').disabled = !appState.demoWritable;
 
       if (m.cityId) {
         document.getElementById('citySelector').value = m.cityId;
       }
 
       const products = m.products || [];
-      const unregNct = products.filter((p) => p.nctStatus !== 'Registered').length;
       document.getElementById('badgeTotalProducts').textContent = products.length;
-      document.getElementById('badgeUnregNct').textContent = unregNct;
       document.getElementById('badgeDevicesCount').textContent = `${(m.devices || []).length}/${m.maxDevices || 4}`;
 
       // Context tabs
@@ -1525,11 +1464,9 @@
         btn.classList.toggle('active', btn.dataset.ctx === appState.context);
       });
 
-      document.getElementById('btnRegisterAllNct').style.display =
-        appState.context === 'nct' && unregNct > 0 ? 'inline-flex' : 'none';
+      document.getElementById('nctCatalogLink').style.display = appState.context === 'nct' ? 'inline-flex' : 'none';
 
       renderProductsTable();
-      renderIntegrationPage();
       renderDevicesPage();
       renderLogsPage();
 
@@ -1548,6 +1485,7 @@
       document.getElementById('countFirstPlace').textContent = `(${allProducts.filter((p) => p.place === 1).length})`;
       document.getElementById('countNotFirst').textContent = `(${allProducts.filter((p) => p.place > 1).length})`;
 
+      document.getElementById('countFloor').textContent = '(' + allProducts.filter((p) => p.dampingStatus === 'MIN_PRICE_REACHED').length + ')';
       const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
       const sortBy = document.getElementById('sortSelect').value;
 
@@ -1558,6 +1496,7 @@
         if (appState.statusFilter === 'BOT_ON') return Boolean(p.botEnabled);
         if (appState.statusFilter === 'FIRST_PLACE') return p.place === 1;
         if (appState.statusFilter === 'NOT_FIRST') return p.place > 1;
+        if (appState.statusFilter === 'FLOOR') return p.dampingStatus === 'MIN_PRICE_REACHED';
         return true;
       });
 
@@ -1565,9 +1504,7 @@
         if (sortBy === 'DampingFirst') return Number(Boolean(b.botEnabled)) - Number(Boolean(a.botEnabled));
         if (sortBy === 'NotFirstPlace') return b.place - a.place;
         if (sortBy === 'NctNotRegisteredFirst') {
-          if (a.nctStatus !== 'Registered' && b.nctStatus === 'Registered') return -1;
-          if (a.nctStatus === 'Registered' && b.nctStatus !== 'Registered') return 1;
-          return 0;
+          return Number(a.nctStatus === 'Unverified') - Number(b.nctStatus === 'Unverified');
         }
         if (sortBy === 'PriceDesc') return b.price - a.price;
         if (sortBy === 'PriceAsc') return a.price - b.price;
@@ -1589,7 +1526,11 @@
         `;
         tbody.innerHTML = filtered
           .map((p) => {
-            const isReg = p.nctStatus === 'Registered';
+            const candidate = p.nctStatus === 'Unverified' ? p.ntin : '—';
+            const statusText = {
+              Unverified: 'Код не подтверждён',
+              InvalidFormat: 'Неверный формат кода'
+            }[p.nctStatus] || 'Требуется проверка в НКТ';
             return `
               <tr>
                 <td>
@@ -1605,14 +1546,8 @@
                 </td>
                 <td><code>${p.sku}</code></td>
                 <td><code>${p.gtin || '—'}</code></td>
-                <td>${isReg ? `<strong style="color:var(--green-text);">${p.ntin}</strong>` : '<span style="color:var(--text-muted);">Не присвоен</span>'}</td>
-                <td>
-                  ${
-                    isReg
-                      ? `<span class="status-pill working">✓ Зарегистрирован</span>`
-                      : `<button class="btn btn-primary" style="height:30px; font-size:12px;" onclick="registerNct('${p.id}')">Зарегистрировать</button>`
-                  }
-                </td>
+                <td><code>${candidate}</code></td>
+                <td>${statusText}</td>
               </tr>
             `;
           })
@@ -1678,13 +1613,13 @@
           const firstPrice = p.firstPositionPrice || p.competitorPrice || p.price;
           const profit = Math.round(p.price * 0.88 - (p.purchasePrice || 0));
 
-          let statusHtml = `<span class="status-pill working">Удерживает 1 место</span>`;
+          let statusHtml = `<span class="status-pill working">Демо-репрайсер включён</span>`;
           if (!p.botEnabled) {
             statusHtml = `<span class="status-pill disabled">Демпинг выключен</span>`;
           } else if (p.dampingStatus === 'MIN_PRICE_REACHED') {
             statusHtml = `<span class="status-pill limit">🛡 Сработал порог (${fmtPrice(p.minPrice)})</span>`;
           } else if (p.dampingStatus === 'PRICE_UPDATED') {
-            statusHtml = `<span class="status-pill updated">Цена снижена ботом (1 место)</span>`;
+            statusHtml = `<span class="status-pill updated">Цена в демо пересчитана</span>`;
           }
 
           return `
@@ -1746,7 +1681,7 @@
         .join('');
     }
 
-    // STANDINGS DRAWER (ПРОДАВЦЫ В КАРТОЧКЕ KASPI)
+    // Демонстрационная таблица продавцов
     function openStandingsDrawer(productId) {
       appState.activeDrawerProductId = productId;
       renderStandingsDrawerContent(productId);
@@ -1768,8 +1703,9 @@
       document.getElementById('drawerProdSku').textContent = `Артикул: ${p.sku} • Город: ${m.cityName || 'Алматы'}`;
       document.getElementById('drawerYourPrice').textContent = fmtPrice(p.price);
       document.getElementById('drawerMinPrice').textContent = fmtPrice(p.minPrice);
-      document.getElementById('drawerPosition').textContent = `${p.place} место из ${p.totalOffers || 15}`;
+      document.getElementById('drawerPosition').textContent = `${p.place} место из ${p.standings?.length || 1}`;
 
+      document.getElementById('drawerCompForm').hidden = !appState.demoWritable;
       const standings = p.standings || [];
       document.getElementById('drawerStandingsList').innerHTML = standings
         .map(
@@ -1796,6 +1732,7 @@
     }
 
     async function submitDrawerCompetitorPrice() {
+      if (!appState.demoWritable) return showToast('Симуляция доступна при локальном запуске');
       const productId = appState.activeDrawerProductId;
       const priceVal = Number(document.getElementById('drawerCompInput').value);
       if (!productId || !priceVal) return;
@@ -1809,9 +1746,9 @@
       if (data.ok) {
         await fetchState();
         if (data.events && data.events.length > 0) {
-          showToast(`Бот снизил цену до ${fmtPrice(data.events[0].newPrice)} и вернул 1-е место`);
+          showToast(`Цена в демо изменилась до ${fmtPrice(data.events[0].newPrice)}`);
         } else {
-          showToast('Цены в карточке обновлены');
+          showToast('Цена конкурента изменена в демо');
         }
       } else {
         showToast(data.error || 'Ошибка');
@@ -1826,11 +1763,12 @@
       if (!p) return;
 
       appState.editingProductId = productId;
-      document.getElementById('limitsModalTitle').textContent = p.title;
+      document.getElementById('limitsModalTitle').textContent = p.title + ' · ' + m.cityName;
       document.getElementById('modalCurrentPrice').value = p.price;
       document.getElementById('modalMinPrice').value = p.minPrice;
       document.getElementById('modalMaxPrice').value = p.maxPrice;
       document.getElementById('modalStepPrice').value = p.step || 10;
+      document.getElementById('modalNearFloor').value = p.nearFloorWindow ?? 200;
       document.getElementById('modalPurchasePrice').value = p.purchasePrice || 0;
       document.getElementById('limitsModal').classList.add('open');
     }
@@ -1841,6 +1779,10 @@
     }
 
     async function saveLimitsModal() {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       const productId = appState.editingProductId;
       if (!productId) return;
 
@@ -1849,6 +1791,7 @@
         minPrice: Number(document.getElementById('modalMinPrice').value),
         maxPrice: Number(document.getElementById('modalMaxPrice').value),
         step: Number(document.getElementById('modalStepPrice').value || 10),
+        nearFloorWindow: Number(document.getElementById('modalNearFloor').value),
         purchasePrice: Number(document.getElementById('modalPurchasePrice').value)
       };
 
@@ -1858,14 +1801,17 @@
         body: JSON.stringify({ productId, updates })
       });
       const data = await res.json();
+      if (!data.ok) return showToast(data.error || 'Ошибка сохранения лимитов');
       closeLimitsModal();
-      if (data.ok) {
-        await fetchState();
-        showToast('Лимиты сохранены');
-      }
+      await fetchState();
+      showToast('Лимиты сохранены');
     }
 
     async function toggleProductBot(productId, enabled) {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       await fetch('/api/products/limits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1876,6 +1822,10 @@
     }
 
     async function toggleProductTurbo(productId, turboEnabled) {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       await fetch('/api/products/limits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1886,148 +1836,31 @@
     }
 
     async function toggleGlobalBot() {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       await fetch('/api/repricer/toggle', { method: 'POST' });
       await fetchState();
       showToast('Статус бота обновлен');
     }
 
-    async function syncWithKaspi() {
-      const btn = document.getElementById('syncBtn');
-      btn.textContent = 'Синхронизация...';
-      const res = await fetch('/api/store/sync/trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-      const data = await res.json();
-      btn.textContent = '🔄 Синхронизировать';
-      await fetchState();
-      if (data.ok) {
-        showToast(`Синхронизировано товаров: ${data.syncedCount}`);
-      }
-    }
-
     async function changeCity(cityId) {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       await fetch('/api/store/city', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cityId })
       });
       await fetchState();
-      showToast('Город мониторинга изменен');
+      showToast('Город демо изменён');
     }
 
-    async function registerNct(productId) {
-      const res = await fetch('/api/nct/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId })
-      });
-      const data = await res.json();
-      await fetchState();
-      if (data.ok) {
-        showToast(`Зарегистрировано в НКТ: ${data.count} шт.`);
-      }
-    }
-
-    // 3-STEP INTEGRATION WIZARD
     function openIntegrationModal() {
-      setWizardStep(1);
-      document.getElementById('integrationModal').classList.add('open');
-    }
-
-    function closeIntegrationModal() {
-      document.getElementById('integrationModal').classList.remove('open');
-    }
-
-    function setWizardStep(step) {
-      [1, 2, 3].forEach((s) => {
-        document.getElementById('wizStep' + s).style.display = s === step ? 'flex' : 'none';
-        const chip = document.getElementById('wizStepChip' + s);
-        chip.className = 'step-chip' + (s === step ? ' active' : s < step ? ' done' : '');
-      });
-    }
-
-    async function wizSendOtp() {
-      const phoneNumber = document.getElementById('wizPhoneInput').value.trim();
-      if (!phoneNumber) return;
-      const res = await fetch('/api/store/integration/root/sendOtp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setWizardStep(2);
-        showToast('СМС-код отправлен');
-      } else {
-        showToast(data.error || 'Ошибка отправки СМС');
-      }
-    }
-
-    async function wizVerifyOtp() {
-      const phoneNumber = document.getElementById('wizPhoneInput').value.trim();
-      const otp = document.getElementById('wizOtpInput').value.trim();
-      const res = await fetch('/api/store/integration/root/verifyOtp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber, otp })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        appState.wizRootCookie = data.rootCookie;
-        appState.wizMerchants = data.merchants || [];
-        const sel = document.getElementById('wizMerchantSelect');
-        sel.innerHTML = appState.wizMerchants
-          .map((m) => `<option value="${m.uid}" data-name="${m.name}" data-bin="${m.bin}">${m.name} (БИН ${m.bin})</option>`)
-          .join('');
-        setWizardStep(3);
-      } else {
-        showToast(data.error || 'Неверный код');
-      }
-    }
-
-    async function wizCompleteIntegration() {
-      const phoneNumber = document.getElementById('wizPhoneInput').value.trim();
-      const otp = document.getElementById('wizOtpInput').value.trim();
-      const sel = document.getElementById('wizMerchantSelect');
-      const opt = sel.options[sel.selectedIndex];
-      const merchantId = sel.value;
-      const companyName = opt ? opt.getAttribute('data-name') : 'ИП QASPIK STORE';
-      const bin = opt ? opt.getAttribute('data-bin') : '980415300812';
-
-      const res = await fetch('/api/store/integration/root/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phoneNumber,
-          otp,
-          merchantId,
-          companyName,
-          bin,
-          rootCookie: appState.wizRootCookie
-        })
-      });
-      const data = await res.json();
-      closeIntegrationModal();
-      if (data.ok) {
-        await fetchState();
-        showToast('Магазин подключен, бот внедрен в личный кабинет Kaspi');
-      } else {
-        showToast(data.error || 'Ошибка подключения');
-      }
-    }
-
-    function renderIntegrationPage() {
-      const m = appState.merchant;
-      if (!m) return;
-      document.getElementById('intStoreName').textContent = m.name;
-      document.getElementById('intStoreBin').textContent = m.bin;
-      document.getElementById('intStorePhone').textContent = m.phone;
-      document.getElementById('intBotLogin').textContent =
-        m.kaspiSession?.botEmployeeLogin || `bot-${m.id.toLowerCase()}@qaspik.kz`;
-      const tok = m.kaspiSession?.autoExtractedApiToken || '';
-      document.getElementById('intApiToken').textContent = tok ? tok.slice(0, 16) + '...' : 'Активен';
+      switchPage('integration');
     }
 
     function renderDevicesPage() {
@@ -2037,9 +1870,8 @@
       document.getElementById('subActiveBadge').textContent = sub.active ? 'Активна' : 'Приостановлена';
       document.getElementById('subActiveBadge').className =
         'status-pill ' + (sub.active ? 'working' : 'disabled');
-      document.getElementById('subBinText').textContent = `${m.name} (БИН ${m.bin})`;
+      document.getElementById('subBinText').textContent = m.name;
       document.getElementById('subPlanText').textContent = sub.plan || `До ${m.maxDevices} устройств`;
-      document.getElementById('subInviteText').textContent = m.inviteCode || '—';
       document.getElementById('btnToggleSub').textContent = sub.active
         ? 'Приостановить подписку'
         : 'Активировать подписку';
@@ -2066,6 +1898,10 @@
     }
 
     async function addDeviceSession() {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       const res = await fetch('/api/devices/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2081,6 +1917,10 @@
     }
 
     async function removeDevice(deviceId) {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       await fetch('/api/devices/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2091,16 +1931,26 @@
     }
 
     async function setMaxDevices(maxDevices) {
-      await fetch('/api/devices/max', {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
+      const res = await fetch('/api/devices/max', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ maxDevices })
       });
+      const data = await res.json();
+      if (!data.ok) return showToast(data.error || 'Ошибка изменения лимита');
       await fetchState();
       showToast(`Лимит установлен: ${maxDevices} устройства`);
     }
 
     async function toggleSubscription() {
+      if (!appState.demoWritable) {
+        renderAll();
+        return showToast('Изменения доступны при локальном запуске демо');
+      }
       await fetch('/api/subscription/toggle', { method: 'POST' });
       await fetchState();
       showToast('Статус подписки изменен');
@@ -2129,8 +1979,7 @@
     }
 
     initFromUrl();
-    fetchState(false);
-    setInterval(() => fetchState(true), 9000);
+    fetchState();
   </script>
 </body>
 </html>

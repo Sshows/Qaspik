@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kaspi_catalog date="2026-01-01T00:00:00Z"
+               xmlns="kaspiShopping"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:schemaLocation="kaspiShopping http://kaspi.kz/kaspishopping.xsd">
+  <company>Учебный магазин Qaspik</company>
+  <merchantid>123456</merchantid>
+  <offers>
+    <offer sku="DEMO100">
+      <model>Тестовая лампа A</model>
+      <brand>Qaspik Demo</brand>
+      <availabilities>
+        <availability available="yes" storeId="PP1" stockCount="14"/>
+        <availability available="yes" storeId="PP2" stockCount="8"/>
+      </availabilities>
+      <cityprices>
+        <cityprice cityId="750000000">26000</cityprice>
+        <cityprice cityId="710000000">26800</cityprice>
+      </cityprices>
+    </offer>
+    <offer sku="DEMO200">
+      <model>Тестовый органайзер B</model>
+      <brand>Qaspik Demo</brand>
+      <availabilities>
+        <availability available="yes" storeId="PP1" preOrder="3" stockCount="5"/>
+      </availabilities>
+      <price>12700</price>
+    </offer>
+    <offer sku="DEMO300">
+      <model>Тестовая полка C</model>
+      <brand>Qaspik Demo</brand>
+      <availabilities>
+        <availability available="yes" storeId="PP1" stockCount="3"/>
+      </availabilities>
+      <price>17900</price>
+    </offer>
+  </offers>
+</kaspi_catalog>

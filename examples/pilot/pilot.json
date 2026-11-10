@@ -1,0 +1,23 @@
+{
+  "merchantId": "123456",
+  "subscription": {
+    "enabled": true,
+    "expiresAt": "2099-01-01T00:00:00Z"
+  },
+  "maxObservationAgeSeconds": 900,
+  "products": [
+    {
+      "sku": "DEMO100",
+      "cityId": "750000000",
+      "minPrice": 24000,
+      "standardStep": 110,
+      "nearFloorWindow": 200
+    },
+    {
+      "sku": "DEMO200",
+      "minPrice": 12000,
+      "standardStep": 110,
+      "nearFloorWindow": 200
+    }
+  ]
+}

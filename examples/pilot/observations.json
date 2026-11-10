@@ -1,0 +1,16 @@
+{
+  "merchantId": "123456",
+  "offers": [
+    {
+      "sku": "DEMO100",
+      "cityId": "750000000",
+      "competitorPrice": 25500,
+      "observedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "sku": "DEMO200",
+      "competitorPrice": 12080,
+      "observedAt": "2026-01-01T00:00:00Z"
+    }
+  ]
+}

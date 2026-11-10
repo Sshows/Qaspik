@@ -1,67 +1,41 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 
 const {
   getDb,
-  saveDb,
-  normalizeProducts,
-  hydrateFromSupabase,
-  upsertMerchantByPhone,
+  createDemoMerchant,
   registerDeviceForMerchant,
   removeDeviceFromMerchant
 } = require('./src/db');
 const {
-  requestKaspiSmsCode,
-  verifyRootOtpOnly,
-  verifyKaspiSmsCode,
   runRepricerCycle,
-  runAutonomousMarketTick,
   updateProductLimits,
   triggerCompetitorPriceChange,
-  syncMerchantWithKaspi,
-  registerNctForProduct
+  syncMerchantWithKaspi
 } = require('./src/kaspiService');
-const { createTelegramBot, notifyMerchantDevices } = require('./src/telegramBot');
+const { createTelegramBot, createTelegramWebhookHandler } = require('./src/telegramBot');
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-let isHydrated = false;
-async function ensureReady() {
-  if (!isHydrated) {
-    isHydrated = true;
-    await hydrateFromSupabase();
-  }
-  const db = getDb();
-  if (Object.keys(db.merchants).length === 0) {
-    upsertMerchantByPhone({
-      phone: '+77071234567',
-      bin: '980415300812',
-      companyName: 'ИП QASPIK STORE',
-      ownerDevice: {
-        deviceId: 'web_owner_1',
-        deviceName: 'Windows • Chrome (Владелец)',
-        ip: '178.88.10.1'
-      }
-    });
-  } else {
-    for (const m of Object.values(db.merchants)) {
-      m.products = normalizeProducts(m.products, m.id, m.name);
-    }
-  }
+const demoMerchant = createDemoMerchant();
+const demoWritable = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
+
+function getDemoMerchant(id) {
+  return id === undefined || id === demoMerchant.id ? demoMerchant : null;
 }
 
-function getPrimaryMerchant(merchantId) {
-  const db = getDb();
-  if (merchantId && db.merchants[merchantId]) {
-    return db.merchants[merchantId];
-  }
-  const list = Object.values(db.merchants);
-  return list[list.length - 1] || null;
+function demoAction(handler) {
+  return (req, res) => {
+    if (!demoWritable) {
+      return res.status(403).json({ ok: false, error: 'Изменения доступны при локальном запуске демо' });
+    }
+    const merchant = getDemoMerchant(req.body?.merchantId);
+    if (!merchant) return res.status(404).json({ ok: false, error: 'Демо-магазин не найден' });
+    return handler(req.body || {}, res, merchant);
+  };
 }
 
 let botInstance = null;
@@ -77,260 +51,114 @@ for (const route of spaRoutes) {
   });
 }
 
-app.get('/api/state', async (req, res) => {
-  await ensureReady();
-  let autoEvents = [];
-  if (req.query.autoTick === '1') {
-    autoEvents = await runAutonomousMarketTick(async (m, ev) => {
-      if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
-    });
+app.get('/api/state', (req, res) => {
+  if (!getDemoMerchant(req.query.merchantId)) {
+    return res.status(404).json({ ok: false, error: 'Демо-магазин не найден' });
   }
-  const db = getDb();
-  const merchant = getPrimaryMerchant(req.query.merchantId);
   res.json({
     ok: true,
-    merchant,
-    autoEvents,
-    merchants: Object.values(db.merchants).map((m) => ({
-      id: m.id,
-      name: m.name,
-      bin: m.bin,
-      phone: m.phone,
-      cityId: m.cityId || '750000000',
-      cityName: m.cityName || 'Алматы'
-    })),
-    logs: db.logs.slice(0, 40)
+    mode: 'demo',
+    demoWritable,
+    merchant: demoMerchant,
+    logs: getDb().logs.slice(0, 40)
   });
 });
 
-// Шаг 1 интеграции Kaspi (отправка СМС на номер владельца)
-app.post(['/api/store/integration/root/sendOtp', '/api/auth/request-sms'], async (req, res) => {
-  await ensureReady();
-  const phone = req.body.phoneNumber || req.body.phone;
-  if (!phone) return res.status(400).json({ ok: false, error: 'Укажите номер телефона Kaspi' });
-  const result = await requestKaspiSmsCode(phone, 'web_user');
-  res.json(result);
-});
-
-// Шаг 2 интеграции Kaspi (проверка 4-значного кода и получение списка магазинов)
-app.post('/api/store/integration/root/verifyOtp', async (req, res) => {
-  await ensureReady();
-  const phone = req.body.phoneNumber || req.body.phone;
-  const otp = req.body.otp || req.body.smsCode;
-  const result = await verifyRootOtpOnly({ phone, otp });
-  res.json(result);
-});
-
-// Шаг 3 интеграции Kaspi (выбор магазина и автоматическое внедрение бота в личный кабинет mc.shop.kaspi.kz)
-app.post(['/api/store/integration/root/create', '/api/auth/verify-sms'], async (req, res) => {
-  await ensureReady();
-  const phone = req.body.phoneNumber || req.body.phone;
-  const smsCode = req.body.otp || req.body.smsCode || '4590';
-  const merchantId = req.body.merchantId;
-  const companyName = req.body.companyName || req.body.merchantName;
-  const bin = req.body.bin;
-  const rootCookie = req.body.rootCookie;
-
-  const result = await verifyKaspiSmsCode({
-    phone,
-    smsCode,
-    merchantId,
-    companyName,
-    bin,
-    rootCookie,
-    deviceInfo: {
-      deviceId: 'web_' + (req.headers['x-forwarded-for'] || req.ip || 'browser'),
-      deviceName: 'Браузер (Кабинет продавца)',
-      ip: req.headers['x-forwarded-for'] || req.ip || 'KZ'
-    }
+app.post([
+  '/api/store/integration/root/sendOtp',
+  '/api/store/integration/root/verifyOtp',
+  '/api/store/integration/root/create',
+  '/api/auth/request-sms',
+  '/api/auth/verify-sms'
+], (req, res) => {
+  res.status(503).json({
+    ok: false,
+    code: 'KASPI_INTEGRATION_DISABLED',
+    error: 'Подключение магазина через Qaspik недоступно'
   });
-  res.json(result);
 });
 
-// Синхронизация товаров и цен с кабинетом Kaspi
-app.post('/api/store/sync/trigger', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false, error: 'Магазин не найден' });
+app.post('/api/store/sync/trigger', demoAction(async (_body, res, merchant) => {
+  const result = await syncMerchantWithKaspi(merchant.id);
+  res.status(result.ok ? 200 : 503).json(result);
+}));
 
-  const result = await syncMerchantWithKaspi(merchant.id, async (m, ev) => {
-    if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
-  });
-  res.json(result);
-});
+const cities = new Map([
+  ['750000000', 'Алматы'],
+  ['710000000', 'Астана'],
+  ['790000000', 'Шымкент'],
+  ['351010000', 'Караганда'],
+  ['151010000', 'Актобе']
+]);
 
-// Смена города мониторинга
-app.post('/api/store/city', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false, error: 'Магазин не найден' });
-
-  const cityMap = {
-    '750000000': 'Алматы',
-    '710000000': 'Астана',
-    '790000000': 'Шымкент',
-    '351010000': 'Караганда',
-    '151010000': 'Актобе'
-  };
-  const cityId = String(req.body.cityId || '750000000');
-  const cityName = cityMap[cityId] || req.body.cityName || 'Алматы';
+app.post('/api/store/city', demoAction(({ cityId }, res, merchant) => {
+  const cityName = cities.get(cityId);
+  if (!cityName) return res.status(400).json({ ok: false, error: 'Город не найден' });
   merchant.cityId = cityId;
   merchant.cityName = cityName;
-  (merchant.products || []).forEach((p) => {
-    p.city = cityName;
-  });
-  saveDb();
-  res.json({ ok: true, cityId, cityName, merchant });
-});
+  for (const product of merchant.products) product.city = cityName;
+  res.json({ ok: true, cityId, cityName });
+}));
 
-// Обновление цены конкурента в карточке товара -> бот в кабинете мгновенно перебивает цену для удержания 1-го места
-app.post('/api/repricer/drop', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false, error: 'Магазин не подключен' });
-  if (!merchant.subscription.active) {
-    return res.json({ ok: false, error: 'Подписка ИП приостановлена' });
-  }
+app.post('/api/repricer/drop', demoAction(async (body, res, merchant) => {
+  const { productId, competitorPrice, step, competitorName } = body;
+  const result = await triggerCompetitorPriceChange(merchant.id, productId, competitorPrice, step, competitorName);
+  res.status(result.ok ? 200 : 400).json(result);
+}));
 
-  const { productId, competitorPrice, step, competitorName } = req.body;
-  const result = await triggerCompetitorPriceChange(
-    merchant.id,
-    productId,
-    competitorPrice,
-    step,
-    async (m, ev) => {
-      if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
-    },
-    competitorName
-  );
-  res.json(result);
-});
+app.post('/api/repricer/run', demoAction(async (_body, res, merchant) => {
+  res.json({ ok: true, events: await runRepricerCycle(merchant.id) });
+}));
 
-app.post('/api/repricer/run', async (req, res) => {
-  await ensureReady();
-  const events = await runRepricerCycle(async (m, ev) => {
-    if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
-  });
-  res.json({ ok: true, events });
-});
-
-app.post('/api/repricer/toggle', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false });
+app.post('/api/repricer/toggle', demoAction((_body, res, merchant) => {
   merchant.subscription.repricerActive = !merchant.subscription.repricerActive;
-  saveDb();
   res.json({ ok: true, repricerActive: merchant.subscription.repricerActive });
-});
+}));
 
-app.post('/api/products/limits', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false, error: 'Магазин не найден' });
-  const { productId, updates } = req.body;
-  const result = await updateProductLimits(
-    merchant.id,
-    productId,
-    updates || {},
-    async (m, ev) => {
-      if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
-    }
-  );
-  res.json(result);
-});
+app.post('/api/products/limits', demoAction(async ({ productId, updates }, res, merchant) => {
+  const result = await updateProductLimits(merchant.id, productId, updates || {});
+  res.status(result.ok ? 200 : 400).json(result);
+}));
 
-app.post('/api/nct/register', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false, error: 'Магазин не найден' });
-  const { productId } = req.body;
-  const result = registerNctForProduct(merchant.id, productId || 'ALL');
-  res.json(result);
-});
-
-app.post('/api/devices/add', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ allowed: false, reason: 'Магазин не найден' });
-  const num = merchant.devices.length + 1;
-  const result = registerDeviceForMerchant(merchant.id, {
-    deviceId: 'dev_' + Date.now().toString().slice(-4),
-    deviceName: req.body.deviceName || `Сессия менеджера #${num}`,
-    ip: `178.88.12.${10 + num}`
+app.post('/api/nct/register', (_req, res) => {
+  res.status(501).json({
+    ok: false,
+    code: 'NCT_INTEGRATION_UNAVAILABLE',
+    error: 'Заявку на регистрацию товара можно подать в Национальном каталоге товаров.',
+    catalogUrl: 'https://nationalcatalog.kz/'
   });
-  res.json(result);
 });
 
-app.post('/api/devices/remove', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false });
-  const ok = removeDeviceFromMerchant(merchant.id, req.body.deviceId);
-  res.json({ ok });
-});
+app.post('/api/devices/add', demoAction((_body, res, merchant) => {
+  res.json(registerDeviceForMerchant(merchant.id, {}));
+}));
 
-app.post('/api/devices/max', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false });
-  const maxDevices = Number(req.body.maxDevices || 4);
-  merchant.maxDevices = maxDevices;
-  merchant.subscription.plan = `Тариф PRO (до ${maxDevices} устройств)`;
-  saveDb();
-  res.json({ ok: true, maxDevices });
-});
+app.post('/api/devices/remove', demoAction(({ deviceId }, res, merchant) => {
+  res.json({ ok: removeDeviceFromMerchant(merchant.id, deviceId) });
+}));
 
-app.post('/api/subscription/toggle', async (req, res) => {
-  await ensureReady();
-  const merchant = getPrimaryMerchant(req.body.merchantId);
-  if (!merchant) return res.json({ ok: false });
-  merchant.subscription.active = !merchant.subscription.active;
-  saveDb();
-  res.json({ ok: true, subscription: merchant.subscription });
-});
-
-app.post('/api/telegram/webhook', async (req, res) => {
-  await ensureReady();
-  if (botInstance) {
-    try {
-      await botInstance.handleUpdate(req.body);
-    } catch (e) {
-      console.error('Webhook error:', e.message);
-    }
+app.post('/api/devices/max', demoAction(({ maxDevices }, res, merchant) => {
+  if (![3, 4].includes(maxDevices) || merchant.devices.length > maxDevices) {
+    return res.status(400).json({ ok: false, error: 'Лимит должен быть 3 или 4 и покрывать активные устройства' });
   }
-  res.status(200).json({ ok: true });
-});
+  merchant.maxDevices = maxDevices;
+  merchant.subscription.plan = `Демо · до ${maxDevices} устройств`;
+  res.json({ ok: true, maxDevices });
+}));
 
-if (!process.env.VERCEL) {
-  const PORT = process.env.PORT || 3000;
-  ensureReady().then(() => {
-    app.listen(PORT, () => {
-      console.log(`🚀 Сервер Qaspik запущен: http://localhost:${PORT}/products`);
-    });
+app.post('/api/subscription/toggle', demoAction((_body, res, merchant) => {
+  merchant.subscription.active = !merchant.subscription.active;
+  res.json({ ok: true, subscription: merchant.subscription });
+}));
 
-    if (botInstance) {
-      botInstance
-        .launch()
-        .then(() => {
-          console.log('🤖 Telegram-бот @Qaspik_bot запущен!');
-        })
-        .catch((err) => {
-          console.error('Ошибка запуска Telegram-бота:', err.message);
-        });
+app.post(
+  '/api/telegram/webhook',
+  createTelegramWebhookHandler(botInstance, process.env.TELEGRAM_WEBHOOK_SECRET)
+);
 
-      process.once('SIGINT', () => botInstance.stop('SIGINT'));
-      process.once('SIGTERM', () => botInstance.stop('SIGTERM'));
-    }
-
-    const intervalSec = Number(process.env.REPRICER_INTERVAL_SEC || 12);
-    setInterval(async () => {
-      await runAutonomousMarketTick(async (merchant, event) => {
-        if (botInstance) {
-          await notifyMerchantDevices(botInstance, merchant, event);
-        }
-      });
-    }, intervalSec * 1000);
-  });
+if (require.main === module && !process.env.VERCEL) {
+  const port = Number(process.env.PORT || 3000);
+  app.listen(port, '127.0.0.1', () => console.log(`Qaspik · http://127.0.0.1:${port}/products`));
 }
 
 module.exports = app;
