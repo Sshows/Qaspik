@@ -1084,6 +1084,94 @@
       background: var(--bg);
     }
 
+    .seller-panel + .seller-panel {
+      margin-top: 16px;
+    }
+
+    .seller-panel .panel-title {
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .seller-panel h2 {
+      font-size: 19px;
+    }
+
+    .seller-panel a {
+      color: var(--kaspi-red-hover);
+    }
+
+    .seller-panel .settings-help + .settings-help {
+      margin-top: 8px;
+    }
+
+    .seller-panel .btn:disabled {
+      opacity: .55;
+      cursor: default;
+    }
+
+    .seller-panel [hidden] {
+      display: none;
+    }
+
+    .seller-fields {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 12px;
+      border: 0;
+      min-width: 0;
+      margin-top: 16px;
+    }
+
+    .seller-key-field {
+      flex: 0 1 360px;
+      min-width: 0;
+    }
+
+    .seller-feedback:not(:empty) {
+      margin-top: 12px;
+    }
+
+    .seller-pagination {
+      margin-top: 12px;
+    }
+
+    .seller-pagination:not([hidden]) {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .seller-table {
+      margin-top: 12px;
+      border-radius: 8px;
+    }
+
+    .seller-table table {
+      min-width: 630px;
+    }
+
+    .seller-table .order-items-cell {
+      background: #F9FAFB;
+    }
+
+    .seller-items-list {
+      display: grid;
+      gap: 8px;
+      padding-left: 20px;
+    }
+
+    .seller-xml summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .seller-xml p {
+      margin: 8px 0 12px;
+    }
+
     @media (max-width: 900px) {
       .sidebar {
         position: static;
@@ -1141,7 +1229,7 @@
             <option value="351010000">Караганда</option>
             <option value="151010000">Актобе</option>
           </select>
-          <button class="btn-connect-mini" onclick="openIntegrationModal()">+ Магазин</button>
+          <button class="btn-connect-mini" onclick="openSellerAccount()">Магазин Kaspi</button>
         </div>
       </div>
 
@@ -1156,8 +1244,8 @@
         <button class="nav-item" id="nav-settings" onclick="switchPage('settings')">
           <span class="nav-item-left">⚙ Настройки цен</span>
         </button>
-        <button class="nav-item nav-subitem" id="nav-integration" onclick="switchPage('integration')">
-          <span class="nav-item-left">🔌 Интеграция Kaspi</span>
+        <button class="nav-item" id="nav-integration" onclick="openSellerAccount()">
+          <span class="nav-item-left">🔌 Кабинет Kaspi</span>
         </button>
         <button class="nav-item" id="nav-devices" onclick="switchPage('devices')">
           <span class="nav-item-left">💻 Подписка и Устройства</span>
@@ -1205,10 +1293,10 @@
       <main class="workspace" id="page-products">
         <div class="pilot-notice">
           <div>
-            <strong>Магазин Kaspi не подключён</strong>
-            <p>Проверьте настройки на учебных товарах или подготовьте XML-прайс своего магазина.</p>
+            <strong>Учебный каталог Qaspik</strong>
+            <p>Здесь можно проверить расчёт цен. Заказы вашего магазина доступны в разделе «Кабинет Kaspi».</p>
           </div>
-          <button class="btn btn-primary" onclick="openIntegrationModal()">Настроить пилот</button>
+          <button class="btn btn-primary" onclick="openSellerAccount()">Открыть кабинет</button>
         </div>
         <div class="toolbar">
           <div class="filter-pills" id="statusFilterGroup">
@@ -1258,7 +1346,7 @@
       <main class="workspace" id="page-settings" style="display:none;">
         <section class="panel settings-panel" aria-labelledby="pilotHeading" style="margin-bottom:16px;">
           <div class="panel-title">
-            <h2 id="pilotHeading">Пилот для магазина Kaspi</h2>
+            <h2 id="pilotHeading">Пилот с XML-прайсом</h2>
             <span class="status-pill disabled">10 000 ₸ / мес.</span>
           </div>
           <p class="settings-help">Загрузите полный XML, выберите товары и проверьте расчёт перед запуском воркера.</p>
@@ -1368,32 +1456,92 @@
       </main>
 
       <!-- PAGE: INTEGRATION -->
-      <main class="workspace" id="page-integration" aria-labelledby="pilotSetupTitle" style="display:none;">
-        <div class="panel">
-          <div class="panel-title" style="gap:8px; flex-wrap:wrap;">
-            <h2 id="pilotSetupTitle" tabindex="-1" style="font-size:inherit; font-weight:inherit; margin:0;">Подключение прайса Kaspi</h2>
-            <span class="status-pill disabled">Демо · магазин Kaspi не подключён</span>
+      <main class="workspace" id="page-integration" aria-labelledby="sellerAccountTitle" style="display:none;">
+        <section class="panel seller-panel" aria-labelledby="sellerAccountTitle">
+          <div class="panel-title">
+            <h2 id="sellerAccountTitle" tabindex="-1">Подключение магазина по API</h2>
+            <span class="status-pill disabled" id="sellerConnectionBadge">Магазин не подключён</span>
           </div>
-          <p style="color:var(--text-secondary);">В панели показан учебный каталог.</p>
-          <ol style="display:grid; gap:14px; margin:16px 0; padding-left:22px;">
-            <li>
-              <strong>Скачайте полный XML-прайс.</strong>
-              В веб-кабинете продавца Kaspi откройте «Управление товарами» → «Прайс-лист» и скачайте XML со всеми товарами. Сохраните исходный файл отдельно.
-            </li>
-            <li>
-              <strong>Подготовьте настройки пилота.</strong>
-              Нажмите «Настроить пилот», загрузите XML, выберите товары, проверьте предварительный расчёт и выгрузите файлы для запуска.
-            </li>
-            <li>
-              <strong>Запустите воркер и подключите прайс.</strong>
-              Владелец магазина запускает воркер, размещает полный XML по доступной HTTPS-ссылке и добавляет её в кабинете продавца. Раздел находится в «Товары» → «Загрузить прайс-лист» → «Автоматическая загрузка».
-            </li>
-          </ol>
-          <div style="display:flex; flex-wrap:wrap; gap:8px;">
-            <button type="button" class="btn btn-primary" onclick="switchPage('settings')">Настроить пилот</button>
-            <a class="btn" style="text-decoration:none;" href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q3251" target="_blank" rel="noopener noreferrer">Инструкция Kaspi по автозагрузке</a>
+          <p class="settings-help">Подключите свой магазин, чтобы просматривать заказы и их состав в режиме чтения.</p>
+          <p class="settings-help" id="sellerKeyHelp">
+            Руководитель компании может получить ключ в веб-кабинете продавца. Откройте «Настройки» → «Токен API» и нажмите «Сформировать».
+            <a href="https://guide.kaspi.kz/partner/ru/shop/api/general/q3196" target="_blank" rel="noopener noreferrer">Инструкция Kaspi</a>
+          </p>
+          <form id="sellerConnectForm" autocomplete="off" onsubmit="return false;">
+            <fieldset id="sellerConnectFields" class="seller-fields" disabled>
+              <div class="field seller-key-field">
+                <label for="sellerToken">API-ключ Kaspi</label>
+                <input id="sellerToken" type="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="sellerKeyHelp sellerSessionHelp" />
+              </div>
+              <button class="btn btn-primary" type="submit">Подключить магазин</button>
+            </fieldset>
+          </form>
+          <div id="sellerSessionControls" hidden style="margin-top:12px;">
+            <button id="sellerDisconnect" class="btn" type="button">Отключить магазин</button>
           </div>
-        </div>
+          <p class="settings-help seller-feedback" id="sellerSessionHelp">Подключение действует до обновления страницы или отключения магазина.</p>
+          <p class="settings-help seller-feedback" id="sellerConnectionMessage" role="status">Проверяем доступность подключения…</p>
+        </section>
+
+        <section class="panel seller-panel" id="sellerOrders" aria-labelledby="sellerOrdersTitle" hidden>
+          <div class="panel-title">
+            <h2 id="sellerOrdersTitle" tabindex="-1">Заказы магазина</h2>
+            <span class="status-pill disabled">Только просмотр</span>
+          </div>
+          <p id="sellerFiltersHelp" class="settings-help">Выберите состояние заказа и период до 14 календарных дней включительно. Даты указаны по времени Казахстана.</p>
+          <form id="sellerOrdersForm" aria-describedby="sellerFiltersHelp">
+            <fieldset id="sellerOrdersFields" class="seller-fields">
+              <div class="field">
+                <label for="sellerStartDate">С даты</label>
+                <input id="sellerStartDate" type="date" required />
+              </div>
+              <div class="field">
+                <label for="sellerEndDate">По дату</label>
+                <input id="sellerEndDate" type="date" required />
+              </div>
+              <div class="field">
+                <label for="sellerOrderState">Состояние заказа</label>
+                <select id="sellerOrderState">
+                  <option value="NEW">Новые</option>
+                  <option value="SIGN_REQUIRED">На подпись</option>
+                  <option value="PICKUP">Самовывоз</option>
+                  <option value="DELIVERY">Доставка продавцом</option>
+                  <option value="KASPI_DELIVERY">Kaspi Доставка</option>
+                  <option value="ARCHIVE">Архив</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" type="submit">Показать заказы</button>
+            </fieldset>
+          </form>
+          <p class="settings-help seller-feedback" id="sellerOrdersMessage" role="status"></p>
+          <div id="sellerOrdersTable" class="table-container seller-table" hidden>
+            <table aria-label="Заказы магазина Kaspi">
+              <thead>
+                <tr>
+                  <th scope="col">Номер</th>
+                  <th scope="col">Дата создания</th>
+                  <th scope="col">Состояние</th>
+                  <th scope="col">Статус</th>
+                  <th scope="col">Сумма</th>
+                  <th scope="col">Состав заказа</th>
+                </tr>
+              </thead>
+              <tbody id="sellerOrdersBody"></tbody>
+            </table>
+          </div>
+          <div class="seller-pagination" id="sellerOrdersPagination" hidden>
+            <button class="btn" id="sellerOrdersPrevious" type="button">Назад</button>
+            <span id="sellerOrdersPage" class="settings-help"></span>
+            <button class="btn" id="sellerOrdersNext" type="button">Далее</button>
+          </div>
+        </section>
+
+        <details class="panel seller-panel seller-xml">
+          <summary>Дополнительно · XML-прайс для пилота цен</summary>
+          <p class="settings-help">Для отдельного пилота цен скачайте полный XML-прайс из кабинета продавца. В настройках Qaspik загрузите файл, выберите товары и проверьте расчёт.</p>
+          <button type="button" class="btn" onclick="switchPage('settings')">Открыть настройки пилота</button>
+          <a href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q3251" target="_blank" rel="noopener noreferrer">Инструкция Kaspi по автозагрузке</a>
+        </details>
       </main>
 
       <!-- PAGE: DEVICES & SUBSCRIPTION -->
@@ -1555,7 +1703,7 @@
         appState.context = 'nct';
       }
       if (window.location.pathname === '/settings') switchPage('settings');
-      if (window.location.pathname === '/store/integration') switchPage('integration');
+      if (['/', '/orders', '/store/integration'].includes(window.location.pathname)) switchPage('integration');
       if (params.get('orderBy') === 'NctNotRegisteredFirst') {
         const sortEl = document.getElementById('sortSelect');
         if (sortEl) sortEl.value = 'NctNotRegisteredFirst';
@@ -1609,7 +1757,7 @@
       const titleMap = {
         products: appState.context === 'nct' ? 'Национальный каталог товаров (НКТ)' : 'Товары',
         settings: 'Настройки магазина',
-        integration: 'Настройки магазина',
+        integration: 'Кабинет продавца Kaspi',
         devices: 'Подписка ИП и активные устройства',
         logs: 'Журнал работы бота'
       };
@@ -2111,9 +2259,9 @@
       showToast('Город демо изменён');
     }
 
-    function openIntegrationModal() {
+    function openSellerAccount() {
       switchPage('integration');
-      document.getElementById('pilotSetupTitle').focus();
+      document.getElementById('sellerAccountTitle').focus();
     }
 
     function renderDevicesPage() {
@@ -2235,5 +2383,6 @@
     fetchState();
   </script>
   <script src="/pilot-settings.js"></script>
+  <script src="/seller-account.js"></script>
 </body>
 </html>

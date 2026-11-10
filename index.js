@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { createPilotRouter } = require('./src/pilotRoutes');
+const { createSellerRouter } = require('./src/sellerRoutes');
 
 const {
   getDb,
@@ -21,6 +22,7 @@ const { createTelegramBot, createTelegramWebhookHandler } = require('./src/teleg
 const app = express();
 const demoWritable = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
 app.use('/api/pilot', createPilotRouter(demoWritable));
+app.use('/api/seller', createSellerRouter(demoWritable));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -77,7 +79,7 @@ app.post([
   res.status(503).json({
     ok: false,
     code: 'KASPI_INTEGRATION_DISABLED',
-    error: 'Подключение магазина через Qaspik недоступно'
+    error: 'Откройте раздел «Магазин Kaspi» и подключитесь по API-ключу.'
   });
 });
 
