@@ -1303,46 +1303,42 @@
 
         <div class="standings-list" id="drawerStandingsList"></div>
 
-        <div style="background:#F9FAFB; border:1px solid var(--border); border-radius:8px; padding:14px;">
-          <div style="font-size:12.5px; font-weight:600; margin-bottom:8px;">
-            Проверить реакцию бота при снижении цены конкурентом:
+        <div style="background:#F9FAFB; border:1px solid var(--border); border-radius:8px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between;">
+          <div style="font-size:12.5px; color:var(--text-secondary);">
+            🤖 <strong>Автономный режим 24/7:</strong> Бот сам отслеживает эту карточку и перебивает цены без вашего участия, блокируя обвалы ниже порога.
           </div>
-          <div style="display:flex; gap:8px;">
-            <input
-              type="number"
-              id="drawerCompInput"
-              style="flex:1; height:36px; padding:0 10px; border:1px solid var(--border); border-radius:7px; font-size:13px;"
-              placeholder="Новая цена конкурента (₸)"
-            />
-            <button class="btn btn-primary" onclick="submitDrawerCompetitorPrice()">Поставить цену конкуренту</button>
-          </div>
+          <button class="btn" style="flex-shrink:0;" onclick="openLimitsModal(appState.activeDrawerProductId)">Порог ✎</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: НАСТРОЙКА МИН / МАКС ЦЕНЫ ТОВАРА -->
+  <!-- MODAL: НАСТРОЙКА ПОРОГА И ЛИМИТОВ ЦЕНЫ ТОВАРА -->
   <div class="modal-backdrop" id="limitsModal" onclick="if(event.target===this) closeLimitsModal()">
     <div class="modal">
       <div class="modal-header">
-        <span id="limitsModalTitle">Настройка лимитов цены</span>
+        <span id="limitsModalTitle">Защитный порог и лимиты бота</span>
         <button class="close-x" onclick="closeLimitsModal()">✕</button>
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>Текущая цена в магазине (₸)</label>
+          <label>Текущая цена в кабинете Kaspi (₸)</label>
           <input type="number" id="modalCurrentPrice" />
         </div>
         <div class="field">
-          <label>Минимальная цена — «Дно» (ниже бот не опустится, ₸)</label>
+          <label>🛡 Защитный порог от мошенников (ниже этой цены бот не спускается, ₸)</label>
           <input type="number" id="modalMinPrice" />
         </div>
         <div class="field">
-          <label>Максимальная цена (₸)</label>
+          <label>Максимальная цена для авто-возврата маржи (₸)</label>
           <input type="number" id="modalMaxPrice" />
         </div>
         <div class="field">
-          <label>Закупочная цена (для расчета прибыли, ₸)</label>
+          <label>Шаг опережения конкурента (₸, напр. 10 ₸: конкурент -100 ₸ → бот -110 ₸)</label>
+          <input type="number" id="modalStepPrice" />
+        </div>
+        <div class="field">
+          <label>Закупочная цена (₸)</label>
           <input type="number" id="modalPurchasePrice" />
         </div>
       </div>
@@ -1439,9 +1435,9 @@
       return Number(n || 0).toLocaleString('ru-RU') + ' ₸';
     }
 
-    async function fetchState() {
+    async function fetchState(autoTick = false) {
       try {
-        const res = await fetch('/api/state');
+        const res = await fetch(autoTick ? '/api/state?autoTick=1' : '/api/state');
         const data = await res.json();
         if (data.ok && data.merchant) {
           appState.merchant = data.merchant;
@@ -1685,8 +1681,8 @@
           let statusHtml = `<span class="status-pill working">Удерживает 1 место</span>`;
           if (!p.botEnabled) {
             statusHtml = `<span class="status-pill disabled">Демпинг выключен</span>`;
-          } else if (p.dampingStatus === 'MIN_PRICE_REACHED' && !isFirst) {
-            statusHtml = `<span class="status-pill limit">Достигнута мин. цена</span>`;
+          } else if (p.dampingStatus === 'MIN_PRICE_REACHED') {
+            statusHtml = `<span class="status-pill limit">🛡 Сработал порог (${fmtPrice(p.minPrice)})</span>`;
           } else if (p.dampingStatus === 'PRICE_UPDATED') {
             statusHtml = `<span class="status-pill updated">Цена снижена ботом (1 место)</span>`;
           }
@@ -1734,7 +1730,7 @@
                   </label>
                   <button class="turbo-btn ${p.turboEnabled ? 'on' : ''}" title="Турбо-мониторинг" onclick="toggleProductTurbo('${p.id}', ${!p.turboEnabled})">⚡</button>
                   <div class="limits-box" onclick="openLimitsModal('${p.id}')">
-                    <div class="limit-line"><span>МИН:</span> <strong>${fmtPrice(p.minPrice)}</strong></div>
+                    <div class="limit-line"><span>ПОРОГ:</span> <strong>${fmtPrice(p.minPrice)}</strong></div>
                     <div class="limit-line"><span>МАКС:</span> <strong>${fmtPrice(p.maxPrice)}</strong></div>
                   </div>
                 </div>
@@ -1774,10 +1770,6 @@
       document.getElementById('drawerMinPrice').textContent = fmtPrice(p.minPrice);
       document.getElementById('drawerPosition').textContent = `${p.place} место из ${p.totalOffers || 15}`;
 
-      const suggestedTestPrice = Math.max(p.minPrice + 100, p.price - 100);
-      const compInput = document.getElementById('drawerCompInput');
-      if (!compInput.value) compInput.value = suggestedTestPrice;
-
       const standings = p.standings || [];
       document.getElementById('drawerStandingsList').innerHTML = standings
         .map(
@@ -1787,7 +1779,9 @@
               <div class="standing-rank">${s.position}</div>
               <div>
                 <div style="font-weight:${s.isYou ? '700' : '500'}; font-size:13.5px;">
-                  ${s.merchantName} ${s.isYou ? '<span style="color:var(--green-text); font-size:11.5px;">(Ваш магазин)</span>' : ''}
+                  ${s.merchantName}
+                  ${s.isYou ? '<span style="color:var(--green-text); font-size:11.5px;">(Ваш магазин)</span>' : ''}
+                  ${s.isFraudTrap ? '<span style="color:var(--amber-text); background:var(--amber-bg); padding:1px 6px; border-radius:4px; font-size:11px;">🛡 Ниже порога — игнорируется</span>' : ''}
                 </div>
                 <div style="font-size:11.5px; color:var(--text-muted);">★ ${s.rating || 4.9} (${s.reviewsCount || 120} отзывов)</div>
               </div>
@@ -1836,6 +1830,7 @@
       document.getElementById('modalCurrentPrice').value = p.price;
       document.getElementById('modalMinPrice').value = p.minPrice;
       document.getElementById('modalMaxPrice').value = p.maxPrice;
+      document.getElementById('modalStepPrice').value = p.step || 10;
       document.getElementById('modalPurchasePrice').value = p.purchasePrice || 0;
       document.getElementById('limitsModal').classList.add('open');
     }
@@ -1853,6 +1848,7 @@
         price: Number(document.getElementById('modalCurrentPrice').value),
         minPrice: Number(document.getElementById('modalMinPrice').value),
         maxPrice: Number(document.getElementById('modalMaxPrice').value),
+        step: Number(document.getElementById('modalStepPrice').value || 10),
         purchasePrice: Number(document.getElementById('modalPurchasePrice').value)
       };
 
@@ -2133,8 +2129,8 @@
     }
 
     initFromUrl();
-    fetchState();
-    setInterval(fetchState, 6000);
+    fetchState(false);
+    setInterval(() => fetchState(true), 9000);
   </script>
 </body>
 </html>

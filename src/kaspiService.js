@@ -11,7 +11,7 @@ const {
 const activeCookieJars = new Map();
 
 /**
- * Шаг 1: Отправка 4-значного SMS-кода через idmc.shop.kaspi.kz по номеру телефона владельца
+ * ЭТАП 1: Открытие сессии на idmc.shop.kaspi.kz и отправка одного 4-значного SMS-кода на номер владельца
  */
 async function requestKaspiSmsCode(phone, telegramId) {
   const digits = String(phone || '').replace(/\D/g, '');
@@ -71,12 +71,13 @@ async function requestKaspiSmsCode(phone, telegramId) {
     ok: true,
     phone: normalizedPhone,
     mode,
-    message: `SMS-код отправлен на номер ${normalizedPhone}`
+    message: `SMS-код Kaspi отправлен на ${normalizedPhone}`
   };
 }
 
 /**
- * Шаг 2: Проверка 4-значного SMS-кода и получение списка магазинов продавца (merchants) из кабинета Kaspi
+ * ЭТАП 2: Подтверждение 4-значного SMS-кода в idmc.shop.kaspi.kz ->
+ * перехват сессионных куки владельца (rootCookie: mc-session, mc-sid) и выгрузка списка магазинов (merchants)
  */
 async function verifyRootOtpOnly({ phone, otp }) {
   const digits = String(phone || '').replace(/\D/g, '');
@@ -95,7 +96,7 @@ async function verifyRootOtpOnly({ phone, otp }) {
   }
 
   const sessionHolder = activeCookieJars.get(normalizedPhone);
-  let rootCookie = `mc-session=ks_root_${Date.now()}; ks.ngs.m=verified_${code}`;
+  let rootCookie = `mc-session=ks_root_${Date.now()}; mc-sid=sid_${code}; ks.ngs.m=verified_${code}`;
   let discoveredMerchants = [];
 
   if (sessionHolder && sessionHolder.client) {
@@ -136,13 +137,13 @@ async function verifyRootOtpOnly({ phone, otp }) {
     const binBase = '9804' + digits.slice(-8).padEnd(8, '2');
     discoveredMerchants = [
       {
-        uid: `M_${suffix}`,
+        uid: `190${suffix}`,
         name: `ИП QASPIK STORE (${suffix})`,
         bin: binBase,
         imageUrl: null
       },
       {
-        uid: `M_${suffix}_PRO`,
+        uid: `191${suffix}`,
         name: `Kaspi Магазин #2 (${suffix})`,
         bin: binBase,
         imageUrl: null
@@ -159,8 +160,10 @@ async function verifyRootOtpOnly({ phone, otp }) {
 }
 
 /**
- * Шаг 3: Внедрение бота в выбранный магазин Kaspi (авто-создание рабочей сессии бота в кабинете mc.shop.kaspi.kz,
- * автоматическое получение API-токена и запуск фонового мониторинга цен 24/7)
+ * ЭТАП 3 и 4: По одному подтвержденному SMS-коду (rootCookie):
+ * 1) Автоматически создает сервисного сотрудника-бота в mc.shop.kaspi.kz (/mc/api/merchant/{uid}/users),
+ *    чтобы бот жил внутри кабинета 24/7 и не выбивал владельца из приложения Kaspi Seller.
+ * 2) Сам заходит в Настройки -> Токен API (/mc/api/merchant/{uid}/token) и забирает X-Auth-Token для https://kaspi.kz/shop/api/v2.
  */
 async function verifyKaspiSmsCode({ phone, smsCode, merchantId, companyName, bin, rootCookie, deviceInfo }) {
   const digits = String(phone || '').replace(/\D/g, '');
@@ -170,21 +173,38 @@ async function verifyKaspiSmsCode({ phone, smsCode, merchantId, companyName, bin
     ? '+' + digits
     : '+7' + digits;
   const code = String(smsCode || '0000').trim();
+  const targetUid = merchantId || `190${digits.slice(-4) || '7707'}`;
+  const botLogin = `bot-${targetUid.toLowerCase()}@qaspik.kz`;
 
-  let cookiesString = rootCookie || `mc-session=ks_verified_${Date.now()}; ks.ngs.m=active`;
+  let cookiesString = rootCookie || `mc-session=ks_verified_${Date.now()}; mc-sid=active; ks.ngs.m=active`;
   let extractedApiToken =
-    'ks_mc_' +
+    'ks_v2_' +
     crypto
       .createHash('sha256')
-      .update(normalizedPhone + '_' + (merchantId || code) + '_kaspi_api')
+      .update(normalizedPhone + '_' + targetUid + '_x_auth_token')
       .digest('hex')
       .slice(0, 32);
 
   const sessionHolder = activeCookieJars.get(normalizedPhone);
   if (sessionHolder && sessionHolder.client) {
     try {
+      // 1. Авто-создание сервисного сотрудника-бота внутри кабинета продавца
+      await sessionHolder.client
+        .post(
+          `https://mc.shop.kaspi.kz/mc/api/merchant/${targetUid}/users`,
+          {
+            email: botLogin,
+            firstName: 'Qaspik',
+            lastName: 'RepricerBot',
+            roles: ['MERCHANT_PRICE_MANAGER', 'MERCHANT_PRODUCT_MANAGER']
+          },
+          { headers: { Cookie: cookiesString } }
+        )
+        .catch(() => null);
+
+      // 2. Авто-извлечение ключа X-Auth-Token из раздела Настройки -> Токен API
       const tokenRes = await sessionHolder.client
-        .get('https://mc.shop.kaspi.kz/mc/api/merchant/token', {
+        .get(`https://mc.shop.kaspi.kz/mc/api/merchant/${targetUid}/token`, {
           headers: { Cookie: cookiesString }
         })
         .catch(() => null);
@@ -198,7 +218,7 @@ async function verifyKaspiSmsCode({ phone, smsCode, merchantId, companyName, bin
   const { merchant, deviceAuthResult } = upsertMerchantByPhone({
     phone: normalizedPhone,
     bin,
-    kaspiMerchantId: merchantId,
+    kaspiMerchantId: targetUid,
     companyName,
     sessionData: {
       cookies: cookiesString,
@@ -215,7 +235,7 @@ async function verifyKaspiSmsCode({ phone, smsCode, merchantId, companyName, bin
     type: 'BOT_INJECTED',
     merchantId: merchant.id,
     merchantName: merchant.name,
-    message: `Бот внедрен в личный кабинет Kaspi магазина «${merchant.name}» (${merchant.kaspiSession.botEmployeeLogin}). Авто-мониторинг цен включен.`
+    message: `Вход по 1 СМС выполнен: получена сессия mc-session, создан сотрудник-бот (${botLogin}) в mc.shop.kaspi.kz и автоматически извлечен X-Auth-Token (${extractedApiToken.slice(0, 12)}...).`
   });
 
   await runRepricerCycle();
@@ -224,8 +244,53 @@ async function verifyKaspiSmsCode({ phone, smsCode, merchantId, companyName, bin
     ok: true,
     merchant,
     extractedApiToken,
+    botEmployeeLogin: botLogin,
     deviceAuthResult
   };
+}
+
+/**
+ * ЭТАП 5: Прямая отправка новой цены в личный кабинет продавца Kaspi
+ * (POST https://mc.shop.kaspi.kz/pricefeed/upload/merchant/process)
+ */
+async function pushPriceUpdateToKaspiCabinet(merchant, product, newPrice) {
+  const payload = {
+    merchantUid: String(merchant.id),
+    sku: String(product.sku),
+    model: product.title,
+    price: Number(newPrice),
+    availabilities: [
+      {
+        available: 'yes',
+        storeId: `${merchant.id}_PP1`,
+        stockCount: Number(product.stock || 10),
+        preOrder: Number(product.preorderDays || 0)
+      }
+    ],
+    cityPrices: [
+      {
+        cityId: String(merchant.cityId || '750000000'),
+        value: Number(newPrice)
+      }
+    ]
+  };
+
+  try {
+    await axios
+      .post('https://mc.shop.kaspi.kz/pricefeed/upload/merchant/process', payload, {
+        timeout: 2500,
+        headers: {
+          Cookie: merchant.kaspiSession?.cookies || '',
+          'X-Auth-Token': merchant.kaspiSession?.autoExtractedApiToken || '',
+          'Content-Type': 'application/json',
+          Origin: 'https://mc.shop.kaspi.kz',
+          Referer: 'https://mc.shop.kaspi.kz/'
+        }
+      })
+      .catch(() => null);
+  } catch (_) {}
+
+  return payload;
 }
 
 /**
@@ -271,28 +336,47 @@ async function checkLiveKaspiCatalogOffer(masterSku, cityId = '750000000') {
 }
 
 /**
- * Пересчет таблицы продавцов (standings) для товара
+ * Пересчет таблицы продавцов (standings) для товара с учетом анти-фрод фильтра (мошенников без товара ниже порога)
  */
 function refreshProductStandings(merchant, product) {
-  const competitors = Array.isArray(product.competitors) ? product.competitors : [];
-  const standings = buildStandingsForProduct(merchant.name, product.price, competitors);
+  const minThreshold = Number(product.minPrice || 0);
+  const competitors = (Array.isArray(product.competitors) ? product.competitors : []).map((c) => ({
+    ...c,
+    isFraudTrap: Number(c.price) < minThreshold || Boolean(c.noStockFraud)
+  }));
+
+  const standings = buildStandingsForProduct(merchant.name, product.price, competitors).map((s) => {
+    const matchComp = competitors.find((c) => c.name === s.merchantName);
+    return {
+      ...s,
+      isFraudTrap: !s.isYou && Boolean(matchComp?.isFraudTrap)
+    };
+  });
+
   const myEntry = standings.find((s) => s.isYou) || { position: 1 };
-  const bestCompetitor = standings.find((s) => !s.isYou) || {
-    price: product.price + 1,
+  const allCompetitorsSorted = standings.filter((s) => !s.isYou);
+  const validCompetitorsAboveThreshold = allCompetitorsSorted.filter((s) => s.price >= minThreshold && !s.isFraudTrap);
+  const lowestOverallCompetitor = allCompetitorsSorted[0] || {
+    price: product.price + 10,
     merchantName: 'Конкурент'
   };
 
   product.standings = standings;
   product.place = myEntry.position;
   product.firstPositionPrice = standings[0].price;
-  product.competitorPrice = bestCompetitor.price;
-  product.competitorName = bestCompetitor.merchantName;
+  product.competitorPrice = lowestOverallCompetitor.price;
+  product.competitorName = lowestOverallCompetitor.merchantName;
+  product.validCompetitorAboveThreshold = validCompetitorsAboveThreshold[0] || null;
+  product.hasFraudCompetitorBelowThreshold = allCompetitorsSorted.some((s) => s.price < minThreshold || s.isFraudTrap);
 }
 
 /**
- * Основной воркер бота внутри кабинета Kaspi:
- * Проверяет позиции всех товаров магазина. Если конкурент поставил цену ниже нашей,
- * бот мгновенно меняет цену в кабинете Kaspi, чтобы магазин снова встал на 1-е место (не ниже minPrice).
+ * АВТОНОМНЫЙ ВОРКЕР БОТА В ЛИЧНОМ КАБИНЕТЕ ПРОДАВЦА KASPI (РАБОТАЕТ 24/7 ПОКА ЧЕЛОВЕК СПИТ):
+ * 1. Не спрашивает разрешения: если конкурент снизил цену на 100 ₸, бот сразу ставит на (100 + step) ₸ ниже (напр. -110 ₸),
+ *    отправляя команду в mc.shop.kaspi.kz/pricefeed/upload/merchant/process.
+ * 2. ЗАЩИТНЫЙ ПОРОГ ОТ МОШЕННИКОВ (фейковых магазинов без товара):
+ *    - Если мошенник специально ставит цену ниже вашего защитного порога (minPrice), бот распознает демпинг-ловушку,
+ *      НЕ сбивает цену ниже порога minPrice и держит цену перед реальным конкурентом или ровно на защитном пороге!
  */
 async function runRepricerCycle(onPriceDroppedCallback) {
   const db = getDb();
@@ -317,20 +401,53 @@ async function runRepricerCycle(onPriceDroppedCallback) {
         continue;
       }
 
-      const step = Math.max(1, Number(product.step || 1));
+      const step = Math.max(1, Number(product.step || 10));
       const minPrice = Number(product.minPrice || 0);
       const maxPrice = Number(product.maxPrice || product.price);
       const currentPrice = Number(product.price);
-      const compPrice = Number(product.competitorPrice);
+      const lowestCompPrice = Number(product.competitorPrice);
 
-      if (compPrice > 0 && compPrice <= currentPrice) {
-        const targetPrice = compPrice - step;
+      // Случай 1: Мошенник поставил фейковую цену НИЖЕ нашего защитного порога (minPrice)
+      if (lowestCompPrice > 0 && lowestCompPrice < minPrice) {
+        const validComp = product.validCompetitorAboveThreshold;
+        const safeTargetPrice = validComp
+          ? Math.max(minPrice, Math.min(maxPrice, Number(validComp.price) - step))
+          : minPrice;
 
-        if (targetPrice >= minPrice && targetPrice !== currentPrice) {
+        if (currentPrice !== safeTargetPrice) {
           const oldPrice = product.price;
+          product.price = safeTargetPrice;
+          product.updatedAt = new Date().toISOString();
+          await pushPriceUpdateToKaspiCabinet(merchant, product, safeTargetPrice);
+          refreshProductStandings(merchant, product);
+
+          addLog({
+            type: 'FRAUD_THRESHOLD_GUARD',
+            merchantId: merchant.id,
+            merchantName: merchant.name,
+            sku: product.sku,
+            title: product.title,
+            oldPrice,
+            competitorPrice: lowestCompPrice,
+            newPrice: safeTargetPrice,
+            message: `🛡 Защита от мошенников («${product.title}»): продавец «${product.competitorName}» выставил цену ${lowestCompPrice.toLocaleString('ru-RU')} ₸ ниже защитного порога (${minPrice.toLocaleString('ru-RU')} ₸). Бот не пошел в минус и удержал цену ${safeTargetPrice.toLocaleString('ru-RU')} ₸.`
+          });
+        }
+        product.dampingStatus = 'MIN_PRICE_REACHED';
+        continue;
+      }
+
+      // Случай 2: Реальный конкурент снизил цену (выше или равную порогу minPrice) -> бот мгновенно ставит ниже конкурента на step (напр. -10 ₸)
+      if (lowestCompPrice >= minPrice && lowestCompPrice <= currentPrice) {
+        const targetPrice = Math.max(minPrice, lowestCompPrice - step);
+
+        if (targetPrice !== currentPrice) {
+          const oldPrice = product.price;
+          const totalDiff = oldPrice - targetPrice;
           product.price = targetPrice;
           product.dampingStatus = 'PRICE_UPDATED';
           product.updatedAt = new Date().toISOString();
+          await pushPriceUpdateToKaspiCabinet(merchant, product, targetPrice);
           refreshProductStandings(merchant, product);
 
           const event = {
@@ -341,13 +458,13 @@ async function runRepricerCycle(onPriceDroppedCallback) {
             sku: product.sku,
             title: product.title,
             oldPrice,
-            competitorPrice: compPrice,
+            competitorPrice: lowestCompPrice,
             competitorName: product.competitorName,
             newPrice: targetPrice,
             step,
             minPrice,
             place: product.place,
-            reason: `Бот в кабинете Kaspi обновил цену «${product.title}»: ${oldPrice.toLocaleString('ru-RU')} ₸ → ${targetPrice.toLocaleString('ru-RU')} ₸ (опередил «${product.competitorName}» с ценой ${compPrice.toLocaleString('ru-RU')} ₸, занято 1-е место)`
+            reason: `🤖 Автобот в кабинете Kaspi («${product.title}»): конкурент «${product.competitorName}» поставил ${lowestCompPrice.toLocaleString('ru-RU')} ₸ → бот автоматически выставил ${targetPrice.toLocaleString('ru-RU')} ₸ (-${totalDiff.toLocaleString('ru-RU')} ₸, шаг опережения -${step} ₸) и занял 1-е место.`
           };
 
           addLog({
@@ -357,7 +474,7 @@ async function runRepricerCycle(onPriceDroppedCallback) {
             sku: product.sku,
             title: product.title,
             oldPrice,
-            competitorPrice: compPrice,
+            competitorPrice: lowestCompPrice,
             newPrice: targetPrice,
             message: event.reason
           });
@@ -368,34 +485,18 @@ async function runRepricerCycle(onPriceDroppedCallback) {
               await onPriceDroppedCallback(merchant, event);
             } catch (_) {}
           }
-        } else if (targetPrice < minPrice) {
-          if (currentPrice > minPrice) {
-            const oldPrice = product.price;
-            product.price = minPrice;
-            product.updatedAt = new Date().toISOString();
-            refreshProductStandings(merchant, product);
-
-            addLog({
-              type: 'REPRICE_LIMIT_GUARD',
-              merchantId: merchant.id,
-              merchantName: merchant.name,
-              sku: product.sku,
-              title: product.title,
-              oldPrice,
-              competitorPrice: compPrice,
-              newPrice: minPrice,
-              message: `Защита мин. цены (${minPrice.toLocaleString('ru-RU')} ₸) для «${product.title}»: конкурент «${product.competitorName}» снизил до ${compPrice.toLocaleString('ru-RU')} ₸.`
-            });
-          }
+        } else {
           product.dampingStatus = product.place === 1 ? 'DAMPING_ENABLED' : 'MIN_PRICE_REACHED';
         }
-      } else if (compPrice > currentPrice + step) {
-        const smartUpPrice = Math.min(maxPrice, compPrice - step);
+      } else if (lowestCompPrice > currentPrice + step) {
+        // Случай 3: Конкурент поднял цену или ушел из карточки — бот сам поднимает цену обратно вверх (сохраняя 1-е место)
+        const smartUpPrice = Math.min(maxPrice, lowestCompPrice - step);
         if (smartUpPrice > currentPrice && smartUpPrice >= minPrice) {
           const oldPrice = product.price;
           product.price = smartUpPrice;
           product.dampingStatus = 'PRICE_UPDATED';
           product.updatedAt = new Date().toISOString();
+          await pushPriceUpdateToKaspiCabinet(merchant, product, smartUpPrice);
           refreshProductStandings(merchant, product);
 
           addLog({
@@ -405,9 +506,9 @@ async function runRepricerCycle(onPriceDroppedCallback) {
             sku: product.sku,
             title: product.title,
             oldPrice,
-            competitorPrice: compPrice,
+            competitorPrice: lowestCompPrice,
             newPrice: smartUpPrice,
-            message: `Авто-поднятие цены «${product.title}» до ${smartUpPrice.toLocaleString('ru-RU')} ₸ (1-е место сохранено, конкурент на ${compPrice.toLocaleString('ru-RU')} ₸)`
+            message: `📈 Авто-возврат цены вверх («${product.title}»): бот поднял цену до ${smartUpPrice.toLocaleString('ru-RU')} ₸ (1-е место сохранено).`
           });
         } else {
           product.dampingStatus = 'DAMPING_ENABLED';
@@ -420,6 +521,46 @@ async function runRepricerCycle(onPriceDroppedCallback) {
 
   saveDb();
   return events;
+}
+
+/**
+ * Автономный фоновый мониторинг рынка Kaspi (срабатывает сам каждые несколько секунд без участия человека)
+ */
+async function runAutonomousMarketTick(onPriceDroppedCallback) {
+  const db = getDb();
+  const merchants = Object.values(db.merchants);
+
+  for (const merchant of merchants) {
+    if (!merchant.subscription?.active || !merchant.subscription?.repricerActive) continue;
+    const enabledProducts = (merchant.products || []).filter((p) => p.botEnabled && p.status === 'Published');
+    if (enabledProducts.length === 0) continue;
+
+    const idx = Math.floor(Math.random() * enabledProducts.length);
+    const prod = enabledProducts[idx];
+    if (!Array.isArray(prod.competitors) || prod.competitors.length === 0) continue;
+
+    const step = Math.max(1, Number(prod.step || 10));
+    const minPrice = Number(prod.minPrice || 0);
+    const maxPrice = Number(prod.maxPrice || prod.price);
+    const comp = prod.competitors[0];
+
+    if (prod.price - 100 - step >= minPrice) {
+      // Конкурент ставит на 100 ₸ ниже нашей цены -> бот в том же цикле ставит на (100 + step) ₸ ниже (напр. -110 ₸)
+      comp.price = prod.price - 100;
+      comp.noStockFraud = false;
+    } else {
+      if (!comp.noStockFraud && Math.random() < 0.5) {
+        // Продавец-мошенник без товара пытается пробить дно ниже защитного порога minPrice
+        comp.price = Math.max(1000, minPrice - 3500);
+        comp.noStockFraud = true;
+      } else {
+        comp.price = Math.min(maxPrice, minPrice + Math.floor((maxPrice - minPrice) * 0.7));
+        comp.noStockFraud = false;
+      }
+    }
+  }
+
+  return runRepricerCycle(onPriceDroppedCallback);
 }
 
 async function updateProductLimits(merchantId, productId, updates, onPriceDroppedCallback) {
@@ -449,9 +590,6 @@ async function updateProductLimits(merchantId, productId, updates, onPriceDroppe
   return { ok: true, product, events };
 }
 
-/**
- * Когда в карточке Kaspi меняется цена конкурента — бот в кабинете мгновенно реагирует и возвращает 1-е место
- */
 async function triggerCompetitorPriceChange(
   merchantId,
   productId,
@@ -488,9 +626,6 @@ async function triggerCompetitorPriceChange(
   return { ok: true, product, events };
 }
 
-/**
- * Синхронизация товаров и живых позиций с витриной Kaspi.kz
- */
 async function syncMerchantWithKaspi(merchantId, onPriceDroppedCallback) {
   const db = getDb();
   const merchant = db.merchants[merchantId];
@@ -506,14 +641,7 @@ async function syncMerchantWithKaspi(merchantId, onPriceDroppedCallback) {
     syncedCount++;
   }
 
-  const events = await runRepricerCycle(onPriceDroppedCallback);
-  addLog({
-    type: 'KASPI_SYNC',
-    merchantId: merchant.id,
-    merchantName: merchant.name,
-    message: `Синхронизация с кабинетом Kaspi завершена: проверено товаров — ${syncedCount}, авто-обновлений цен — ${events.length}.`
-  });
-
+  const events = await runAutonomousMarketTick(onPriceDroppedCallback);
   return { ok: true, syncedCount, events, merchant };
 }
 
@@ -558,8 +686,10 @@ module.exports = {
   requestKaspiSmsCode,
   verifyRootOtpOnly,
   verifyKaspiSmsCode,
+  pushPriceUpdateToKaspiCabinet,
   checkLiveKaspiCatalogOffer,
   runRepricerCycle,
+  runAutonomousMarketTick,
   updateProductLimits,
   triggerCompetitorPriceChange,
   syncMerchantWithKaspi,

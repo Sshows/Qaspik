@@ -17,6 +17,7 @@ const {
   verifyRootOtpOnly,
   verifyKaspiSmsCode,
   runRepricerCycle,
+  runAutonomousMarketTick,
   updateProductLimits,
   triggerCompetitorPriceChange,
   syncMerchantWithKaspi,
@@ -78,11 +79,18 @@ for (const route of spaRoutes) {
 
 app.get('/api/state', async (req, res) => {
   await ensureReady();
+  let autoEvents = [];
+  if (req.query.autoTick === '1') {
+    autoEvents = await runAutonomousMarketTick(async (m, ev) => {
+      if (botInstance) await notifyMerchantDevices(botInstance, m, ev);
+    });
+  }
   const db = getDb();
   const merchant = getPrimaryMerchant(req.query.merchantId);
   res.json({
     ok: true,
     merchant,
+    autoEvents,
     merchants: Object.values(db.merchants).map((m) => ({
       id: m.id,
       name: m.name,
@@ -314,9 +322,9 @@ if (!process.env.VERCEL) {
       process.once('SIGTERM', () => botInstance.stop('SIGTERM'));
     }
 
-    const intervalSec = Number(process.env.REPRICER_INTERVAL_SEC || 10);
+    const intervalSec = Number(process.env.REPRICER_INTERVAL_SEC || 12);
     setInterval(async () => {
-      await runRepricerCycle(async (merchant, event) => {
+      await runAutonomousMarketTick(async (merchant, event) => {
         if (botInstance) {
           await notifyMerchantDevices(botInstance, merchant, event);
         }
