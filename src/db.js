@@ -5,6 +5,13 @@ const db = {
   logs: []
 };
 
+const DEFAULT_REPRICER_SETTINGS = Object.freeze({
+  standardStep: 10,
+  nearFloorWindow: 200,
+  atFloor: 'hold',
+  autoRaise: true
+});
+
 function buildStandingsForProduct(merchantName, yourPrice, competitors) {
   const list = [
     {
@@ -67,7 +74,6 @@ function normalizeProducts(products, merchantId, merchantName) {
       standings,
       competitors: baseCompetitors,
       purchasePrice: p.purchasePrice !== undefined ? Number(p.purchasePrice) : fallback.purchasePrice,
-      nearFloorWindow: p.nearFloorWindow ?? 200,
       turboEnabled: p.turboEnabled !== undefined ? Boolean(p.turboEnabled) : true,
       dampingStatus: p.dampingStatus || (p.botEnabled ? 'DAMPING_ENABLED' : 'DAMPING_DISABLED')
     };
@@ -90,7 +96,6 @@ function generateDefaultProducts(merchantId, merchantName = 'ИП QASPIK STORE')
       minPrice: 412000,
       maxPrice: 449900,
       purchasePrice: 385000,
-      step: 10,
       turboEnabled: true,
       botEnabled: true,
       dampingStatus: 'DAMPING_ENABLED',
@@ -122,7 +127,6 @@ function generateDefaultProducts(merchantId, merchantName = 'ИП QASPIK STORE')
       minPrice: 109000,
       maxPrice: 124900,
       purchasePrice: 96000,
-      step: 10,
       turboEnabled: true,
       botEnabled: true,
       dampingStatus: 'DAMPING_ENABLED',
@@ -154,7 +158,6 @@ function generateDefaultProducts(merchantId, merchantName = 'ИП QASPIK STORE')
       minPrice: 298000,
       maxPrice: 339000,
       purchasePrice: 265000,
-      step: 10,
       turboEnabled: true,
       botEnabled: true,
       dampingStatus: 'DAMPING_ENABLED',
@@ -185,7 +188,6 @@ function generateDefaultProducts(merchantId, merchantName = 'ИП QASPIK STORE')
       minPrice: 252000,
       maxPrice: 285000,
       purchasePrice: 221000,
-      step: 10,
       turboEnabled: false,
       botEnabled: true,
       dampingStatus: 'DAMPING_ENABLED',
@@ -216,7 +218,6 @@ function generateDefaultProducts(merchantId, merchantName = 'ИП QASPIK STORE')
       minPrice: 65000,
       maxPrice: 74990,
       purchasePrice: 56000,
-      step: 10,
       turboEnabled: true,
       botEnabled: true,
       dampingStatus: 'DAMPING_ENABLED',
@@ -264,6 +265,7 @@ function createDemoMerchant() {
     cityName: 'Алматы',
     maxDevices,
     devices: [],
+    repricerDefaults: { ...DEFAULT_REPRICER_SETTINGS },
     subscription: {
       active: true,
       plan: 'Демо · до 4 устройств',
@@ -321,6 +323,7 @@ function addLog(entry) {
 }
 
 module.exports = {
+  DEFAULT_REPRICER_SETTINGS,
   getDb: () => db,
   buildStandingsForProduct,
   normalizeProducts,

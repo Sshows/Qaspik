@@ -738,24 +738,6 @@
       font-weight: 600;
     }
 
-    .turbo-btn {
-      border: 1px solid var(--border);
-      background: var(--surface);
-      border-radius: 6px;
-      padding: 4px 7px;
-      font-size: 12px;
-      cursor: pointer;
-      color: var(--text-muted);
-      transition: all 0.15s;
-    }
-
-    .turbo-btn.on {
-      border-color: #FCD34D;
-      background: #FFFBEB;
-      color: #D97706;
-      font-weight: 600;
-    }
-
     /* STATUS BADGE */
     .status-pill {
       display: inline-flex;
@@ -1034,6 +1016,74 @@
       cursor: pointer;
     }
 
+    .pilot-notice {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .pilot-notice p, .settings-help {
+      color: var(--text-secondary);
+    }
+
+    .settings-panel {
+      max-width: 720px;
+    }
+
+    .settings-form {
+      display: grid;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .settings-fields {
+      border: 0;
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .settings-fields:disabled {
+      opacity: .72;
+    }
+
+    .settings-auto-raise {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .settings-auto-raise input {
+      margin-top: 3px;
+      accent-color: var(--kaspi-red);
+    }
+
+    .settings-config {
+      margin-top: 18px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+
+    .settings-config summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .settings-config pre {
+      margin-top: 10px;
+      padding: 12px;
+      overflow: auto;
+      border-radius: 6px;
+      background: var(--bg);
+    }
+
     @media (max-width: 900px) {
       .sidebar {
         position: static;
@@ -1046,6 +1096,16 @@
       }
       .main-area {
         margin-left: 0;
+      }
+      .topbar {
+        height: auto;
+        min-height: 60px;
+        padding: 8px 16px;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .topbar-left, .topbar-right {
+        flex-wrap: wrap;
       }
     }
   </style>
@@ -1093,8 +1153,11 @@
         <button class="nav-item nav-subitem" id="nav-nct" onclick="switchPage('products', 'nct')">
           <span class="nav-item-left">🏷 Проверка НКТ</span>
         </button>
-        <button class="nav-item" id="nav-integration" onclick="switchPage('integration')">
-          <span class="nav-item-left">🔌 Кабинет Kaspi</span>
+        <button class="nav-item" id="nav-settings" onclick="switchPage('settings')">
+          <span class="nav-item-left">⚙ Настройки цен</span>
+        </button>
+        <button class="nav-item nav-subitem" id="nav-integration" onclick="switchPage('integration')">
+          <span class="nav-item-left">🔌 Интеграция Kaspi</span>
         </button>
         <button class="nav-item" id="nav-devices" onclick="switchPage('devices')">
           <span class="nav-item-left">💻 Подписка и Устройства</span>
@@ -1124,6 +1187,10 @@
           </div>
         </div>
         <div class="topbar-right">
+          <div class="context-tabs" id="settingsTabs" aria-label="Настройки магазина" style="display:none;">
+            <button class="context-tab" id="generalSettingsTab" onclick="switchPage('settings')">Общие настройки</button>
+            <button class="context-tab" id="integrationSettingsTab" onclick="switchPage('integration')">Интеграция</button>
+          </div>
           <div class="worker-pill">
             <span>Демо-репрайсер:</span>
             <label class="switch">
@@ -1131,12 +1198,18 @@
               <span class="slider"></span>
             </label>
           </div>
-          <button class="btn btn-primary" onclick="openIntegrationModal()">Подключение Kaspi</button>
         </div>
       </header>
 
       <!-- PAGE: PRODUCTS -->
       <main class="workspace" id="page-products">
+        <div class="pilot-notice">
+          <div>
+            <strong>Магазин Kaspi не подключён</strong>
+            <p>Проверьте настройки на учебных товарах или подготовьте XML-прайс своего магазина.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openIntegrationModal()">Настроить пилот</button>
+        </div>
         <div class="toolbar">
           <div class="filter-pills" id="statusFilterGroup">
             <button class="filter-pill active" data-filter="ALL" onclick="setStatusFilter('ALL')">
@@ -1182,15 +1255,73 @@
         </div>
       </main>
 
-      <!-- PAGE: INTEGRATION -->
-      <main class="workspace" id="page-integration" style="display:none;">
-        <div class="panel">
+      <main class="workspace" id="page-settings" style="display:none;">
+        <section class="panel settings-panel" aria-labelledby="defaultsHeading">
           <div class="panel-title">
-            <span>Подключение магазина Kaspi</span>
-            <span class="status-pill disabled">Недоступно</span>
+            <h2 id="defaultsHeading">Правила расчёта по умолчанию</h2>
+            <span class="status-pill disabled">Демо</span>
           </div>
-          <p>Панель показывает демонстрационный каталог. Расчёты выполняются на тестовых данных.</p>
-          <a class="btn" href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q2962" target="_blank" rel="noopener">Как настроить прайс-лист в Kaspi</a>
+          <p class="settings-help">Общий шаг и шаг у порога применяются к товарам без собственных значений. Стратегия и автоповышение действуют на весь демо-магазин.</p>
+          <form id="defaultsForm" class="settings-form" onsubmit="saveRepricerDefaults(event)">
+            <fieldset id="defaultsFields" class="settings-fields" disabled>
+              <div class="field">
+                <label for="defaultStep">Обычный шаг (₸)</label>
+                <input type="number" id="defaultStep" required min="1" step="1" />
+              </div>
+              <div class="field">
+                <label for="defaultNearFloor">Расстояние до порога для шага 1 ₸ (₸)</label>
+                <input type="number" id="defaultNearFloor" required min="0" step="1" />
+              </div>
+              <div class="field">
+                <label for="defaultAtFloor">Если цена конкурента достигла вашего минимума</label>
+                <select id="defaultAtFloor">
+                  <option value="hold">Оставить текущую цену</option>
+                  <option value="minimum">Установить минимальную цену товара</option>
+                </select>
+              </div>
+              <label class="settings-auto-raise">
+                <input id="defaultAutoRaise" type="checkbox" />
+                <span>Разрешить автоповышение в пределах максимальной цены товара</span>
+              </label>
+              <div>
+                <button type="submit" id="saveDefaultsButton" class="btn btn-primary">Сохранить настройки</button>
+              </div>
+            </fieldset>
+            <p class="settings-help" id="settingsModeHint" role="status"></p>
+          </form>
+          <details class="settings-config">
+            <summary>Перенести сохранённые правила в пилот</summary>
+            <p class="settings-help">Перенесите свойство defaults в корень существующего pilot.json. Для автоповышения в пилоте задайте maxPrice у каждого товара, на который действует правило.</p>
+            <pre id="defaultsConfig"></pre>
+          </details>
+        </section>
+      </main>
+
+      <!-- PAGE: INTEGRATION -->
+      <main class="workspace" id="page-integration" aria-labelledby="pilotSetupTitle" style="display:none;">
+        <div class="panel">
+          <div class="panel-title" style="gap:8px; flex-wrap:wrap;">
+            <h2 id="pilotSetupTitle" tabindex="-1" style="font-size:inherit; font-weight:inherit; margin:0;">Настройка XML-пилота Kaspi</h2>
+            <span class="status-pill disabled">Демо · магазин не подключён</span>
+          </div>
+          <p style="color:var(--text-secondary);">Пилот запускается отдельно на компьютере оператора. В этой панели показаны учебные товары.</p>
+          <ol style="display:grid; gap:14px; margin:16px 0; padding-left:22px;">
+            <li>
+              <strong>Выгрузите полный XML-прайс.</strong>
+              Скачайте прайс из кабинета продавца, сохраните оригинал отдельно и поместите рабочую копию <code>catalog.xml</code> в папку пилота.
+            </li>
+            <li>
+              <strong>Проверьте расчёт на копии.</strong>
+              Укажите товары, пороги и шаги в <code>pilot.json</code>, а свежие цены конкурентов с фактическим временем наблюдения в <code>observations.json</code>.
+              Сначала выполните <code>node scripts/kaspi-pilot.js plan &lt;папка&gt;</code>, затем примените проверенный расчёт командой <code>apply</code> вместо <code>plan</code>.
+            </li>
+            <li>
+              <strong>Укажите ссылку в кабинете продавца.</strong>
+              Разместите проверенный полный XML на своём HTTPS-сервере и добавьте ссылку в разделе автоматической загрузки прайса Kaspi.
+              Kaspi загружает изменённый файл раз в час.
+            </li>
+          </ol>
+          <a class="btn btn-primary" style="text-decoration:none;" href="https://guide.kaspi.kz/partner/ru/shop/goods/price_list/q3251" target="_blank" rel="noopener noreferrer">Инструкция Kaspi по автозагрузке</a>
         </div>
       </main>
 
@@ -1309,7 +1440,7 @@
           <input type="number" id="modalMinPrice" />
         </div>
         <div class="field">
-          <label>Максимальная цена для авто-возврата маржи (₸)</label>
+          <label>Максимальная цена при автоповышении (₸)</label>
           <input type="number" id="modalMaxPrice" />
         </div>
         <div class="field">
@@ -1319,6 +1450,7 @@
         <div class="field">
           <label for="modalNearFloor">Переход на шаг 1 ₸, если до порога осталось (₸)</label>
           <input type="number" id="modalNearFloor" min="0" />
+          <small class="settings-help">Пустое поле использует значение из общих настроек.</small>
         </div>
         <div class="field">
           <label>Закупочная цена (₸)</label>
@@ -1332,7 +1464,6 @@
     </div>
   </div>
 
-  <!-- MODAL: 3-ШАГОВОЕ ПОДКЛЮЧЕНИЕ МАГАЗИНА KASPI (БЕЗ РУЧНОГО API КЛЮЧА) -->
   <div class="toast" id="toastEl"></div>
 
   <script>
@@ -1352,6 +1483,8 @@
       if (params.get('context') === 'nct') {
         appState.context = 'nct';
       }
+      if (window.location.pathname === '/settings') switchPage('settings');
+      if (window.location.pathname === '/store/integration') switchPage('integration');
       if (params.get('orderBy') === 'NctNotRegisteredFirst') {
         const sortEl = document.getElementById('sortSelect');
         if (sortEl) sortEl.value = 'NctNotRegisteredFirst';
@@ -1389,7 +1522,7 @@
       appState.page = page;
       if (context) appState.context = context;
 
-      ['products', 'integration', 'devices', 'logs'].forEach((p) => {
+      ['products', 'settings', 'integration', 'devices', 'logs'].forEach((p) => {
         const el = document.getElementById('page-' + p);
         if (el) el.style.display = p === page ? 'block' : 'none';
       });
@@ -1403,12 +1536,21 @@
 
       const titleMap = {
         products: appState.context === 'nct' ? 'Национальный каталог товаров (НКТ)' : 'Товары',
-        integration: 'Интеграция с кабинетом Kaspi',
+        settings: 'Настройки магазина',
+        integration: 'Настройки магазина',
         devices: 'Подписка ИП и активные устройства',
         logs: 'Журнал работы бота'
       };
       document.getElementById('topbarTitle').textContent = titleMap[page] || 'Товары';
       document.getElementById('productsContextTabs').style.display = page === 'products' ? 'inline-flex' : 'none';
+      document.getElementById('settingsTabs').style.display =
+        page === 'settings' || page === 'integration' ? 'inline-flex' : 'none';
+      for (const [tabId, tabPage] of [['generalSettingsTab', 'settings'], ['integrationSettingsTab', 'integration']]) {
+        const tab = document.getElementById(tabId);
+        tab.classList.toggle('active', page === tabPage);
+        if (page === tabPage) tab.setAttribute('aria-current', 'page');
+        else tab.removeAttribute('aria-current');
+      }
 
       renderAll();
     }
@@ -1467,6 +1609,7 @@
       document.getElementById('nctCatalogLink').style.display = appState.context === 'nct' ? 'inline-flex' : 'none';
 
       renderProductsTable();
+      if (appState.page === 'settings') renderRepricerDefaults();
       renderDevicesPage();
       renderLogsPage();
 
@@ -1603,7 +1746,7 @@
           <th>Позиция в карточке</th>
           <th>Демпинг и Лимиты</th>
           <th>Статус</th>
-          <th>Закуп / Маржа</th>
+          <th title="Оценка с условной комиссией 12% в демо">Закуп / Маржа в демо</th>
         </tr>
       `;
 
@@ -1651,10 +1794,10 @@
               <td>
                 <div class="pos-wrap">
                   <button class="pos-badge ${isFirst ? 'rank-1' : 'rank-other'}" onclick="openStandingsDrawer('${p.id}')">
-                    <span>${isFirst ? '🥇' : '⚠️'} ${p.place} из ${p.totalOffers || 15}</span>
+                    <span>${isFirst ? '🥇' : '⚠️'} ${p.place} из ${p.standings?.length || 1}</span>
                     <span style="opacity:0.75; font-weight:500;">• Продавцы</span>
                   </button>
-                  <span class="pos-time">✓ Проверено только что</span>
+                  <span class="pos-time">Учебные данные</span>
                 </div>
               </td>
               <td>
@@ -1663,11 +1806,10 @@
                     <input type="checkbox" ${p.botEnabled ? 'checked' : ''} onchange="toggleProductBot('${p.id}', this.checked)" />
                     <span class="slider"></span>
                   </label>
-                  <button class="turbo-btn ${p.turboEnabled ? 'on' : ''}" title="Турбо-мониторинг" onclick="toggleProductTurbo('${p.id}', ${!p.turboEnabled})">⚡</button>
-                  <div class="limits-box" onclick="openLimitsModal('${p.id}')">
-                    <div class="limit-line"><span>ПОРОГ:</span> <strong>${fmtPrice(p.minPrice)}</strong></div>
-                    <div class="limit-line"><span>МАКС:</span> <strong>${fmtPrice(p.maxPrice)}</strong></div>
-                  </div>
+                  <button class="limits-box" type="button" aria-label="Настроить цену товара" onclick="openLimitsModal('${p.id}')">
+                    <span class="limit-line"><span>ПОРОГ:</span> <strong>${fmtPrice(p.minPrice)}</strong></span>
+                    <span class="limit-line"><span>МАКС:</span> <strong>${fmtPrice(p.maxPrice)}</strong></span>
+                  </button>
                 </div>
               </td>
               <td>${statusHtml}</td>
@@ -1755,6 +1897,51 @@
       }
     }
 
+    function renderRepricerDefaults() {
+      const defaults = appState.merchant.repricerDefaults;
+      if (!defaults) return;
+      document.getElementById('defaultStep').value = defaults.standardStep;
+      document.getElementById('defaultNearFloor').value = defaults.nearFloorWindow;
+      document.getElementById('defaultAtFloor').value = defaults.atFloor;
+      document.getElementById('defaultAutoRaise').checked = defaults.autoRaise;
+      document.getElementById('defaultsFields').disabled = !appState.demoWritable;
+      document.getElementById('settingsModeHint').textContent = appState.demoWritable
+        ? 'Сохранение меняет правила для следующих расчётов в локальном демо.'
+        : 'В открытой версии доступен просмотр. Правила можно менять при локальном запуске.';
+      document.getElementById('defaultsConfig').textContent = JSON.stringify({ defaults }, null, 2);
+    }
+
+    async function saveRepricerDefaults(event) {
+      event.preventDefault();
+      if (!appState.demoWritable) return;
+      const button = document.getElementById('saveDefaultsButton');
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/repricer/defaults', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            standardStep: document.getElementById('defaultStep').valueAsNumber,
+            nearFloorWindow: document.getElementById('defaultNearFloor').valueAsNumber,
+            atFloor: document.getElementById('defaultAtFloor').value,
+            autoRaise: document.getElementById('defaultAutoRaise').checked
+          })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          showToast(data.error || 'Не удалось сохранить настройки');
+          return;
+        }
+        appState.merchant.repricerDefaults = data.defaults;
+        renderRepricerDefaults();
+        showToast('Общие настройки сохранены');
+      } catch (_) {
+        showToast('Не удалось связаться с локальным сервером');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     // LIMITS MODAL
     function openLimitsModal(productId) {
       const m = appState.merchant;
@@ -1767,8 +1954,12 @@
       document.getElementById('modalCurrentPrice').value = p.price;
       document.getElementById('modalMinPrice').value = p.minPrice;
       document.getElementById('modalMaxPrice').value = p.maxPrice;
-      document.getElementById('modalStepPrice').value = p.step || 10;
-      document.getElementById('modalNearFloor').value = p.nearFloorWindow ?? 200;
+      const step = document.getElementById('modalStepPrice');
+      const nearFloor = document.getElementById('modalNearFloor');
+      step.value = p.step ?? '';
+      step.placeholder = m.repricerDefaults.standardStep;
+      nearFloor.value = p.nearFloorWindow ?? '';
+      nearFloor.placeholder = m.repricerDefaults.nearFloorWindow;
       document.getElementById('modalPurchasePrice').value = p.purchasePrice || 0;
       document.getElementById('limitsModal').classList.add('open');
     }
@@ -1786,12 +1977,15 @@
       const productId = appState.editingProductId;
       if (!productId) return;
 
+      const step = document.getElementById('modalStepPrice');
+      const nearFloor = document.getElementById('modalNearFloor');
+      if (!step.reportValidity() || !nearFloor.reportValidity()) return;
       const updates = {
         price: Number(document.getElementById('modalCurrentPrice').value),
         minPrice: Number(document.getElementById('modalMinPrice').value),
         maxPrice: Number(document.getElementById('modalMaxPrice').value),
-        step: Number(document.getElementById('modalStepPrice').value || 10),
-        nearFloorWindow: Number(document.getElementById('modalNearFloor').value),
+        step: step.value === '' ? null : step.valueAsNumber,
+        nearFloorWindow: nearFloor.value === '' ? null : nearFloor.valueAsNumber,
         purchasePrice: Number(document.getElementById('modalPurchasePrice').value)
       };
 
@@ -1821,20 +2015,6 @@
       showToast(enabled ? 'Демпинг включен' : 'Демпинг выключен');
     }
 
-    async function toggleProductTurbo(productId, turboEnabled) {
-      if (!appState.demoWritable) {
-        renderAll();
-        return showToast('Изменения доступны при локальном запуске демо');
-      }
-      await fetch('/api/products/limits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, updates: { turboEnabled } })
-      });
-      await fetchState();
-      showToast(turboEnabled ? 'Турбо-режим включен' : 'Турбо-режим выключен');
-    }
-
     async function toggleGlobalBot() {
       if (!appState.demoWritable) {
         renderAll();
@@ -1861,6 +2041,7 @@
 
     function openIntegrationModal() {
       switchPage('integration');
+      document.getElementById('pilotSetupTitle').focus();
     }
 
     function renderDevicesPage() {

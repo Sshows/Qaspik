@@ -29,6 +29,14 @@ function isPositiveInteger(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+function isNonNegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function isFloorStrategy(value) {
+  return value === 'hold' || value === 'minimum';
+}
+
 function offerKey(sku, cityId) {
   if (typeof sku !== 'string' || !/^[A-Za-z0-9_-]{1,20}$/.test(sku)) {
     throw new Error('Укажите корректный артикул продавца');
@@ -43,7 +51,7 @@ function planPilotPrices(xml, config, observations, nowMs) {
   const access = checkPilotAccess(config, nowMs);
   if (!access.active) return { changes: [], decisions: [] };
 
-  const { merchantId, maxObservationAgeSeconds, products } = config;
+  const { merchantId, maxObservationAgeSeconds, products, defaults = {} } = config;
   if (typeof merchantId !== 'string' || !/^[0-9]+$/.test(merchantId)) {
     throw new Error('Укажите merchantId из полного прайс-листа');
   }
@@ -52,6 +60,15 @@ function planPilotPrices(xml, config, observations, nowMs) {
   }
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('В pilot.json укажите хотя бы один товар');
+  }
+  if (
+    !defaults || typeof defaults !== 'object' || Array.isArray(defaults) ||
+    (defaults.standardStep !== undefined && !isPositiveInteger(defaults.standardStep)) ||
+    (defaults.nearFloorWindow !== undefined && !isNonNegativeInteger(defaults.nearFloorWindow)) ||
+    (defaults.atFloor !== undefined && !isFloorStrategy(defaults.atFloor)) ||
+    (defaults.autoRaise !== undefined && typeof defaults.autoRaise !== 'boolean')
+  ) {
+    throw new Error('Проверьте настройки defaults в pilot.json');
   }
   if (observations?.merchantId !== merchantId || !Array.isArray(observations.offers)) {
     throw new Error('observations.json должен содержать merchantId пилота и массив offers');
@@ -83,18 +100,28 @@ function planPilotPrices(xml, config, observations, nowMs) {
   const decisions = [];
   for (const rule of products) {
     const key = offerKey(rule?.sku, rule?.cityId);
-    const { sku, cityId, minPrice, maxPrice, standardStep, nearFloorWindow } = rule;
+    const {
+      sku, cityId, minPrice, maxPrice,
+      standardStep = defaults.standardStep,
+      nearFloorWindow = defaults.nearFloorWindow,
+      atFloor = defaults.atFloor ?? 'hold',
+      autoRaise = defaults.autoRaise ?? false
+    } = rule;
     if (
       tracked.has(key) || !feedPrices.has(key) || ![minPrice, standardStep].every(isPositiveInteger) ||
       (maxPrice !== undefined && (!isPositiveInteger(maxPrice) || maxPrice < minPrice)) ||
-      !Number.isSafeInteger(nearFloorWindow) || nearFloorWindow < 0
+      !isNonNegativeInteger(nearFloorWindow) || !isFloorStrategy(atFloor) || typeof autoRaise !== 'boolean'
     ) {
       throw new Error('Неверная или повторная настройка для артикула и города ' + key);
+    }
+    if (autoRaise && maxPrice === undefined) {
+      throw new Error('Для автоподъёма укажите maxPrice для артикула и города ' + key);
     }
     tracked.add(key);
     const current = feedPrices.get(key);
     const observed = market.get(key);
     const decision = { sku, cityId, current, minPrice };
+    const alreadyBelowCompetitor = observed && current < observed.price;
 
     if (!observed) {
       decision.code = 'NO_OBSERVATION';
@@ -102,17 +129,26 @@ function planPilotPrices(xml, config, observations, nowMs) {
       decision.code = 'OBSERVATION_OUT_OF_DATE';
     } else if (observed.price <= minPrice || current < minPrice) {
       decision.code = 'FLOOR_GUARD';
-    } else if (current < observed.price) {
+      if (atFloor === 'minimum' && current > minPrice) {
+        decision.code = 'FLOOR_MINIMUM';
+        decision.competitorPrice = observed.price;
+        decision.price = minPrice;
+      }
+    } else if (alreadyBelowCompetitor && !autoRaise) {
       decision.code = 'ALREADY_BELOW_COMPETITOR';
     } else {
       const step = getUndercutStep(observed.price, minPrice, standardStep, nearFloorWindow);
       const price = Math.min(maxPrice ?? current, observed.price - step);
-      decision.code = 'PROPOSED';
-      decision.competitorPrice = observed.price;
-      decision.step = step;
-      decision.price = price;
-      changes.push({ sku, cityId, price });
+      if (alreadyBelowCompetitor && price <= current) {
+        decision.code = 'NO_ROOM_TO_RAISE';
+      } else {
+        decision.code = alreadyBelowCompetitor ? 'AUTO_RAISE' : 'PROPOSED';
+        decision.competitorPrice = observed.price;
+        decision.step = step;
+        decision.price = price;
+      }
     }
+    if (decision.price !== undefined) changes.push({ sku, cityId, price: decision.price });
     decisions.push(decision);
   }
   return { changes, decisions };

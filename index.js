@@ -10,6 +10,7 @@ const {
 } = require('./src/db');
 const {
   runRepricerCycle,
+  updateRepricerDefaults,
   updateProductLimits,
   triggerCompetitorPriceChange,
   syncMerchantWithKaspi
@@ -113,6 +114,11 @@ app.post('/api/repricer/run', demoAction(async (_body, res, merchant) => {
 app.post('/api/repricer/toggle', demoAction((_body, res, merchant) => {
   merchant.subscription.repricerActive = !merchant.subscription.repricerActive;
   res.json({ ok: true, repricerActive: merchant.subscription.repricerActive });
+}));
+
+app.post('/api/repricer/defaults', demoAction((body, res, merchant) => {
+  const result = updateRepricerDefaults(merchant.id, body);
+  res.status(result.ok ? 200 : 400).json(result);
 }));
 
 app.post('/api/products/limits', demoAction(async ({ productId, updates }, res, merchant) => {

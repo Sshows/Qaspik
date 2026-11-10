@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { getUndercutStep } = require('./pricePolicy');
-const { getDb, buildStandingsForProduct, addLog } = require('./db');
+const { DEFAULT_REPRICER_SETTINGS, getDb, buildStandingsForProduct, addLog } = require('./db');
 
 let catalogRetryAt = 0;
 let catalogCheckInProgress = false;
@@ -33,8 +33,36 @@ function refreshProductStandings(merchant, product) {
   product.firstPositionPrice = standings[0].price;
   product.competitorPrice = cheapest?.price ?? null;
   product.competitorName = cheapest?.merchantName ?? null;
-  product.validCompetitorAboveThreshold = competitorStandings.find((entry) => !entry.isFraudTrap) || null;
+  product.validCompetitorAboveThreshold = competitorStandings.find((entry) => (
+    !entry.isFraudTrap && entry.price > minPrice
+  )) || null;
   product.hasFraudCompetitorBelowThreshold = competitorStandings.some((entry) => entry.isFraudTrap);
+  return cheapest;
+}
+
+function updateRepricerDefaults(merchantId, settings) {
+  const merchant = demoMerchantOnly(merchantId);
+  if (!merchant) return { ok: false, error: 'Демо-магазин не найден' };
+
+  const fields = Object.keys(DEFAULT_REPRICER_SETTINGS);
+  if (
+    !settings || typeof settings !== 'object' || Array.isArray(settings) ||
+    Object.keys(settings).length !== fields.length || !fields.every((field) => Object.hasOwn(settings, field))
+  ) {
+    return { ok: false, error: 'Укажите все четыре настройки автодемпинга' };
+  }
+  const { standardStep, nearFloorWindow, atFloor, autoRaise } = settings;
+  if (!Number.isSafeInteger(standardStep) || standardStep < 1) {
+    return { ok: false, error: 'Шаг снижения должен быть целым числом от 1 ₸' };
+  }
+  if (!Number.isSafeInteger(nearFloorWindow) || nearFloorWindow < 0) {
+    return { ok: false, error: 'Окно у минимума должно быть целым числом от 0 ₸' };
+  }
+  if (!['hold', 'minimum'].includes(atFloor) || typeof autoRaise !== 'boolean') {
+    return { ok: false, error: 'Некорректное правило у минимума или настройка повышения цены' };
+  }
+  merchant.repricerDefaults = { standardStep, nearFloorWindow, atFloor, autoRaise };
+  return { ok: true, defaults: merchant.repricerDefaults };
 }
 
 function runRepricerCycle(merchantId, productId) {
@@ -47,10 +75,11 @@ function runRepricerCycle(merchantId, productId) {
     return [];
   }
 
+  const defaults = merchant.repricerDefaults ?? DEFAULT_REPRICER_SETTINGS;
   const events = [];
   for (const product of merchant.products || []) {
     if (productId && product.id !== productId) continue;
-    refreshProductStandings(merchant, product);
+    const cheapest = refreshProductStandings(merchant, product);
     if (!product.botEnabled || product.status !== 'Published') {
       product.dampingStatus = 'DAMPING_DISABLED';
       continue;
@@ -59,8 +88,8 @@ function runRepricerCycle(merchantId, productId) {
     const currentPrice = Number(product.price);
     const minPrice = Number(product.minPrice);
     const maxPrice = Number(product.maxPrice);
-    const standardStep = Number(product.step);
-    const nearFloorWindow = Number(product.nearFloorWindow);
+    const standardStep = Number(product.step ?? defaults.standardStep);
+    const nearFloorWindow = Number(product.nearFloorWindow ?? defaults.nearFloorWindow);
     if (
       ![currentPrice, minPrice, maxPrice, standardStep, nearFloorWindow].every(Number.isSafeInteger) ||
       currentPrice <= 0 || minPrice <= 0 || maxPrice < minPrice || standardStep < 1 || nearFloorWindow < 0
@@ -68,15 +97,22 @@ function runRepricerCycle(merchantId, productId) {
       continue;
     }
 
-    const competitor = product.validCompetitorAboveThreshold;
-    const underThreshold = product.hasFraudCompetitorBelowThreshold || competitor?.price === minPrice;
+    const atOrBelowFloor = cheapest?.price <= minPrice;
+    const underThreshold = product.hasFraudCompetitorBelowThreshold || atOrBelowFloor;
+    const setMinimum = defaults.atFloor === 'minimum' && atOrBelowFloor;
+    const competitor = setMinimum ? cheapest : product.validCompetitorAboveThreshold;
     product.dampingStatus = underThreshold ? 'MIN_PRICE_REACHED' : 'DAMPING_ENABLED';
-    if (!competitor || competitor.price <= minPrice) continue;
-    const step = getUndercutStep(competitor.price, minPrice, standardStep, nearFloorWindow);
-    if (competitor.price > currentPrice && competitor.price - step <= currentPrice) continue;
+    if (atOrBelowFloor && (!setMinimum || currentPrice <= minPrice)) continue;
+    if (!competitor) continue;
 
-    const targetPrice = Math.max(minPrice, Math.min(maxPrice, competitor.price - step));
-    if (targetPrice === currentPrice) continue;
+    let step = 0;
+    let targetPrice = minPrice;
+    if (!setMinimum) {
+      step = getUndercutStep(competitor.price, minPrice, standardStep, nearFloorWindow);
+      if (competitor.price > currentPrice && competitor.price - step <= currentPrice) continue;
+      targetPrice = Math.max(minPrice, Math.min(maxPrice, competitor.price - step));
+    }
+    if (targetPrice === currentPrice || (!defaults.autoRaise && targetPrice > currentPrice)) continue;
 
     product.price = targetPrice;
     product.updatedAt = new Date().toISOString();
@@ -133,6 +169,10 @@ function updateProductLimits(merchantId, productId, updates) {
   for (const [field, minimum] of Object.entries(numericFields)) {
     const raw = updates[field];
     if (raw === undefined) continue;
+    if (raw === null && (field === 'step' || field === 'nearFloorWindow')) {
+      changes[field] = null;
+      continue;
+    }
     const number = Number(raw);
     if (
       (typeof raw !== 'number' && typeof raw !== 'string') || String(raw).trim() === '' ||
@@ -291,6 +331,7 @@ async function syncMerchantWithKaspi(merchantId) {
 
 module.exports = {
   runRepricerCycle,
+  updateRepricerDefaults,
   updateProductLimits,
   triggerCompetitorPriceChange,
   syncMerchantWithKaspi
