@@ -47,6 +47,7 @@
     404: 'Kaspi не нашёл заказ. Обновите список заказов.',
     429: 'Слишком много запросов. Подождите немного и попробуйте снова.',
     502: 'Kaspi сейчас не отвечает на запрос. Попробуйте снова чуть позже.',
+    503: 'Подключение временно недоступно. Попробуйте снова чуть позже.',
     504: 'Kaspi не ответил вовремя. Попробуйте снова чуть позже.'
   };
 
@@ -310,7 +311,7 @@
       if (!response.ok) throw new Error();
       enabled = (await response.json()).enabled === true;
       connectFields.disabled = !enabled;
-      connectionMessage.textContent = enabled ? '' : 'Подключение доступно в локальной версии. Запустите Qaspik командой npm start и откройте http://127.0.0.1:3000/orders.';
+      connectionMessage.textContent = enabled ? '' : 'Откройте qaspik.vercel.app/orders или запустите Qaspik локально командой npm start.';
     } catch {
       connectionMessage.textContent = 'Не удалось проверить доступность подключения. Обновите страницу.';
     }

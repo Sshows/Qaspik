@@ -83,26 +83,29 @@ function respondToFailure(res, upstream) {
   return res.status(502).json({ error: 'Kaspi вернул неожиданный ответ. Попробуйте ещё раз.' });
 }
 
-function createSellerRouter(enabled, fetchKaspi = fetch) {
+function createSellerRouter(enabled, fetchKaspi = fetch, webAccess = null) {
   const router = express.Router();
   const loopback = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+  const isLocal = (req) => enabled && loopback.has(req.hostname);
+  const isWeb = (req) => Boolean(webAccess && req.get('host') === webAccess.host);
   router.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
     res.set('Referrer-Policy', 'no-referrer');
     const origin = req.get('origin');
-    if (origin && origin !== req.protocol + '://' + req.get('host')) {
-      return res.status(403).json({ error: 'Откройте подключение в локальной панели Qaspik.' });
+    const allowedOrigin = isWeb(req) ? webAccess.origin : req.protocol + '://' + req.get('host');
+    if ((origin && origin !== allowedOrigin) || (isWeb(req) && req.method === 'POST' && !origin)) {
+      return res.status(403).json({ error: 'Откройте подключение на сайте Qaspik.' });
     }
     return next();
   });
 
   router.get('/capabilities', (req, res) => res.json({
-    enabled: Boolean(enabled && loopback.has(req.hostname))
+    enabled: Boolean(isLocal(req) || isWeb(req))
   }));
 
   router.use((req, res, next) => {
-    if (!enabled || !loopback.has(req.hostname)) {
-      return res.status(503).json({ error: 'Подключение продавца доступно при локальном запуске Qaspik.' });
+    if (!isLocal(req) && !isWeb(req)) {
+      return res.status(503).json({ error: 'Подключение продавца недоступно на этом адресе.' });
     }
     return next();
   });
@@ -117,6 +120,18 @@ function createSellerRouter(enabled, fetchKaspi = fetch) {
     return next();
   });
 
+  async function reserveWebBudget(req, res, cost) {
+    if (!isWeb(req)) return true;
+    const allowed = await webAccess.reserve(req.get('x-vercel-forwarded-for'), cost);
+    if (allowed === true) return true;
+    if (allowed === false) {
+      res.set('Retry-After', '60').status(429).json({ error: 'Лимит запросов Qaspik. Повторите через минуту.' });
+    } else {
+      res.status(503).json({ error: 'Подключение временно недоступно. Повторите позже.' });
+    }
+    return false;
+  }
+
   router.post('/orders', async (req, res) => {
     const { token, page = 0, startDate, endDate, state } = req.body;
     const firstDay = calendarDay(startDate);
@@ -129,6 +144,7 @@ function createSellerRouter(enabled, fetchKaspi = fetch) {
     }
     const from = localMidnight(firstDay);
     const to = Math.min(localMidnight(lastDay + DAY) - 1, now);
+    if (!await reserveWebBudget(req, res, 1)) return;
     const upstream = await getKaspi(fetchKaspi, '/orders', token, AbortSignal.timeout(8000), {
       'page[number]': page,
       'page[size]': PAGE_SIZE,
@@ -162,6 +178,7 @@ function createSellerRouter(enabled, fetchKaspi = fetch) {
     if (!validId(orderId) || !pageNumber(page)) {
       return res.status(400).json({ error: 'Выберите заказ из списка.' });
     }
+    if (!await reserveWebBudget(req, res, PAGE_SIZE + 1)) return;
     const signal = AbortSignal.timeout(8000);
     const upstream = await getKaspi(fetchKaspi, '/orders/' + encodeURIComponent(orderId) + '/entries', token, signal);
     const entries = upstream.document?.data;

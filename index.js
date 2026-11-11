@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const { createPilotRouter } = require('./src/pilotRoutes');
 const { createSellerRouter } = require('./src/sellerRoutes');
+const { createSellerWebAccess } = require('./src/sellerWebAccess');
 
 const {
   getDb,
@@ -22,7 +23,7 @@ const { createTelegramBot, createTelegramWebhookHandler } = require('./src/teleg
 const app = express();
 const demoWritable = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
 app.use('/api/pilot', createPilotRouter(demoWritable));
-app.use('/api/seller', createSellerRouter(demoWritable));
+app.use('/api/seller', createSellerRouter(demoWritable, fetch, createSellerWebAccess(process.env)));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
