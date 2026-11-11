@@ -1460,7 +1460,7 @@
         <section class="panel seller-panel" aria-labelledby="sellerAccountTitle">
           <div class="panel-title">
             <h2 id="sellerAccountTitle" tabindex="-1">Подключение магазина по API</h2>
-            <span class="status-pill disabled" id="sellerConnectionBadge">Магазин не подключён</span>
+            <span class="status-pill disabled" id="sellerConnectionBadge">Ключ не подключён</span>
           </div>
           <p class="settings-help">Подключите свой магазин, чтобы просматривать заказы и их состав в режиме чтения.</p>
           <p class="settings-help" id="sellerKeyHelp">
@@ -1473,13 +1473,23 @@
                 <label for="sellerToken">API-ключ Kaspi</label>
                 <input id="sellerToken" type="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="sellerKeyHelp sellerSessionHelp" />
               </div>
-              <button class="btn btn-primary" type="submit">Подключить магазин</button>
+              <button class="btn btn-primary" type="submit">Подключить заказы</button>
             </fieldset>
           </form>
           <div id="sellerSessionControls" hidden style="margin-top:12px;">
-            <button id="sellerDisconnect" class="btn" type="button">Отключить магазин</button>
+            <button id="sellerDisconnect" class="btn" type="button">Отключить ключ</button>
+            <form id="sellerCheckOrderForm" autocomplete="off">
+              <fieldset id="sellerCheckOrderFields" class="seller-fields">
+                <div class="field seller-key-field">
+                  <label for="sellerCheckOrderCode">Номер заказа из вашего кабинета Kaspi</label>
+                  <input id="sellerCheckOrderCode" type="text" required maxlength="64" autocomplete="off" spellcheck="false" />
+                </div>
+                <button class="btn" type="submit">Проверить магазин</button>
+              </fieldset>
+            </form>
+            <p class="settings-help seller-feedback" id="sellerCheckOrderMessage" role="status"></p>
           </div>
-          <p class="settings-help seller-feedback" id="sellerSessionHelp">Подключение действует до обновления страницы или отключения магазина.</p>
+          <p class="settings-help seller-feedback" id="sellerSessionHelp">Ключ действует до обновления страницы или отключения.</p>
           <p class="settings-help seller-feedback" id="sellerConnectionMessage" role="status">Проверяем доступность подключения…</p>
         </section>
 

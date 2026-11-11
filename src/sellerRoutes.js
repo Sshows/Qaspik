@@ -43,6 +43,17 @@ function safeNumber(value) {
   return Number.isFinite(value) ? value : null;
 }
 
+function orderSummary({ id, attributes }) {
+  return {
+    id,
+    code: safeText(attributes?.code, 100),
+    state: safeText(attributes?.state, 60),
+    status: safeText(attributes?.status, 60),
+    creationDate: safeNumber(attributes?.creationDate),
+    totalPrice: safeNumber(attributes?.totalPrice)
+  };
+}
+
 function nonNegativeInteger(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
@@ -158,19 +169,29 @@ function createSellerRouter(enabled, fetchKaspi = fetch, webAccess = null) {
       return respondToFailure(res, upstream);
     }
 
-    const orders = data.map(({ id, attributes = {} }) => ({
-      id,
-      code: safeText(attributes?.code, 100),
-      state: safeText(attributes?.state, 60),
-      status: safeText(attributes?.status, 60),
-      creationDate: safeNumber(attributes?.creationDate),
-      totalPrice: safeNumber(attributes?.totalPrice)
-    }));
+    const orders = data.map(orderSummary);
     return res.json({
       orders, page,
       totalPages: nonNegativeInteger(meta?.pageCount) ? meta.pageCount : (orders.length ? page + 1 : page),
       totalOrders: nonNegativeInteger(meta?.totalCount) ? meta.totalCount : orders.length
     });
+  });
+
+  router.post('/order-by-code', async (req, res) => {
+    const { token, code } = req.body;
+    if (typeof code !== 'string' || code.length === 0 || code.length > 64 || /[^a-zA-Z0-9_-]/.test(code)) {
+      return res.status(400).json({ error: 'Введите номер заказа из кабинета продавца Kaspi.' });
+    }
+    if (!await reserveWebBudget(req, res, 1)) return;
+    const upstream = await getKaspi(fetchKaspi, '/orders', token, AbortSignal.timeout(8000), {
+      'filter[orders][code]': code
+    });
+    const data = upstream.document?.data;
+    if (upstream.status !== 200 || !Array.isArray(data)) return respondToFailure(res, upstream);
+
+    const match = data.find((item) => item?.attributes?.code === code);
+    if (match && !validId(match.id)) return respondToFailure(res, upstream);
+    return res.json({ order: match ? orderSummary(match) : null });
   });
 
   router.post('/order-items', async (req, res) => {

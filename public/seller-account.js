@@ -6,6 +6,10 @@
   const connectionBadge = byId('sellerConnectionBadge');
   const connectionMessage = byId('sellerConnectionMessage');
   const sessionControls = byId('sellerSessionControls');
+  const checkOrderForm = byId('sellerCheckOrderForm');
+  const checkOrderFields = byId('sellerCheckOrderFields');
+  const checkOrderCode = byId('sellerCheckOrderCode');
+  const checkOrderMessage = byId('sellerCheckOrderMessage');
   const ordersPanel = byId('sellerOrders');
   const ordersForm = byId('sellerOrdersForm');
   const ordersFields = byId('sellerOrdersFields');
@@ -89,7 +93,7 @@
     connectFields.disabled = !enabled || value;
     sessionControls.hidden = !value;
     ordersPanel.hidden = !value;
-    connectionBadge.textContent = value ? 'Магазин подключён' : 'Магазин не подключён';
+    connectionBadge.textContent = value ? 'Доступ к заказам' : 'Ключ не подключён';
     connectionBadge.classList.toggle('working', value);
     connectionBadge.classList.toggle('disabled', !value);
   }
@@ -110,6 +114,9 @@
     currentPage = 0;
     totalPages = 0;
     setConnected(false);
+    checkOrderForm.reset();
+    checkOrderFields.disabled = false;
+    checkOrderMessage.textContent = '';
     ordersFields.disabled = false;
     ordersBody.replaceChildren();
     ordersTable.hidden = true;
@@ -245,7 +252,7 @@
         : ' · Заказов за выбранный период нет.');
       if (!connected) {
         setConnected(true);
-        connectionMessage.textContent = 'Доступ к заказам Kaspi подтверждён.';
+        connectionMessage.textContent = 'Kaspi принял ключ. Проверьте его по номеру заказа из нужного магазина.';
         byId('sellerOrdersTitle').focus();
       }
     } catch (error) {
@@ -268,6 +275,39 @@
   function readFilters() {
     return { startDate: startDate.value, endDate: endDate.value, state: orderState.value };
   }
+
+  checkOrderForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!connected || checkOrderFields.disabled) return;
+    const code = checkOrderCode.value.trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(code)) {
+      checkOrderMessage.textContent = 'Введите номер заказа из кабинета Kaspi.';
+      checkOrderCode.focus();
+      return;
+    }
+
+    const { signal } = session;
+    checkOrderFields.disabled = true;
+    checkOrderMessage.textContent = 'Ищем этот заказ в Kaspi…';
+    try {
+      const { order } = await sellerRequest('order-by-code', { code }, signal);
+      if (signal.aborted) return;
+      checkOrderMessage.textContent = order?.code === code
+        ? 'Заказ найден. Ключ даёт доступ к заказу из этого кабинета.'
+        : 'Заказ не найден для этого ключа. Сверьте номер заказа и проверьте, из какого магазина взят ключ.';
+    } catch (error) {
+      if (signal.aborted) return;
+      const message = errors[error.status] || 'Не удалось проверить заказ. Попробуйте снова.';
+      if (error.status === 401 || error.status === 403) {
+        disconnect(message);
+        keyInput.focus();
+      } else {
+        checkOrderMessage.textContent = message;
+      }
+    } finally {
+      if (!signal.aborted) checkOrderFields.disabled = false;
+    }
+  });
 
   connectForm.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -298,7 +338,7 @@
   ordersPagination.previous.addEventListener('click', () => loadOrders(currentPage - 1, appliedFilters));
   ordersPagination.next.addEventListener('click', () => loadOrders(currentPage + 1, appliedFilters));
   byId('sellerDisconnect').addEventListener('click', () => {
-    disconnect('Магазин отключён. Заказы удалены из этой вкладки.');
+    disconnect('Ключ отключён. Заказы удалены из этой вкладки.');
     keyInput.focus();
   });
   window.addEventListener('pagehide', () => {

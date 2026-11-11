@@ -14,16 +14,21 @@ const orderQuery = {
   state: 'NEW'
 };
 
-async function startSellerApi(t, enabled, upstream) {
+async function startSellerApi(t, enabled, upstream, reserve = null) {
   const app = express();
-  app.use('/api/seller', createSellerRouter(enabled, upstream));
+  const webAccess = reserve ? { reserve } : null;
+  app.use('/api/seller', createSellerRouter(enabled, upstream, webAccess));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   }));
-  const base = `http://127.0.0.1:${server.address().port}/api/seller`;
+  const host = `127.0.0.1:${server.address().port}`;
+  const origin = `http://${host}`;
+  if (webAccess) Object.assign(webAccess, { host, origin });
+  const base = `${origin}/api/seller`;
   return {
+    origin,
     get: (path) => fetch(base + path),
     post: (path, body, headers = {}) => fetch(base + path, {
       method: 'POST',
@@ -89,6 +94,84 @@ test('reads the requested Kaspi order page and omits private buyer data', async 
   const headers = new Headers(options.headers);
   assert.equal(headers.get('x-auth-token'), token);
   assert.equal(headers.get('content-type'), 'application/vnd.api+json');
+});
+
+test('looks up the exact Kaspi order code and returns only the order summary', async (t) => {
+  const code = '000123456';
+  const creationDate = Date.parse('2026-02-10T05:00:00Z');
+  const order = {
+    code, state: 'ARCHIVE', status: 'COMPLETED', creationDate, totalPrice: 21900
+  };
+  const upstream = t.mock.fn(async () => Response.json({
+    data: [
+      { id: 'OTHERORDER', attributes: { code: '123456' } },
+      { id: orderId, attributes: { ...order, customer: { firstName: 'PrivateBuyer' }, unexpected: token } }
+    ]
+  }));
+  const api = await startSellerApi(t, true, upstream);
+
+  const response = await api.post('/order-by-code', { token, code });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('cache-control'), /\bno-store\b/);
+  assert.deepEqual(await response.json(), { order: { id: orderId, ...order } });
+
+  assert.equal(upstream.mock.callCount(), 1);
+  const [url, options] = upstream.mock.calls[0].arguments;
+  assert.equal(url.origin + url.pathname, 'https://kaspi.kz/shop/api/v2/orders');
+  assert.deepEqual([...url.searchParams], [['filter[orders][code]', code]]);
+  assert.equal(options.method, 'GET');
+  assert.equal(options.redirect, 'error');
+  assert.equal(new Headers(options.headers).get('x-auth-token'), token);
+});
+
+test('distinguishes a missing order from an upstream auth failure', async (t) => {
+  const upstream = t.mock.fn(async () => Response.json({ data: [] }));
+  upstream.mock.mockImplementationOnce(async () => Response.json({
+    data: [{ id: orderId, attributes: { code: '0001234560' } }]
+  }), 1);
+  upstream.mock.mockImplementationOnce(async () => new Response(`Private diagnostics ${token}`, { status: 401 }), 2);
+  const api = await startSellerApi(t, true, upstream);
+  const body = { token, code: '000123456' };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await api.post('/order-by-code', body);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { order: null });
+  }
+  const rejected = await api.post('/order-by-code', body);
+  assert.equal(rejected.status, 401);
+  assert.match((await rejected.json()).error, /^Kaspi отклонил API-ключ\./);
+});
+
+test('validates lookup input and reserves one hosted request before contacting Kaspi', async (t) => {
+  const events = [];
+  const reserve = t.mock.fn(async () => {
+    events.push('reserve');
+    return events.length === 1;
+  });
+  const upstream = t.mock.fn(async () => {
+    events.push('kaspi');
+    return Response.json({ data: [] });
+  });
+  const api = await startSellerApi(t, false, upstream, reserve);
+  const body = { token, code: '000123456' };
+  const ip = '203.0.113.10';
+  const headers = { origin: api.origin, 'x-vercel-forwarded-for': ip };
+
+  for (const invalidBody of [
+    { ...body, token: '' }, { token }, { token, code: 123456 },
+    { token, code: 'x'.repeat(65) }, { token, code: '123&456' }
+  ]) {
+    assert.equal((await api.post('/order-by-code', invalidBody, headers)).status, 400);
+  }
+  assert.equal((await api.post('/order-by-code', body)).status, 403);
+  assert.equal((await api.post('/order-by-code', body, { origin: 'https://foreign.example' })).status, 403);
+  assert.deepEqual(events, []);
+
+  assert.equal((await api.post('/order-by-code', body, headers)).status, 200);
+  assert.equal((await api.post('/order-by-code', body, headers)).status, 429);
+  assert.deepEqual(events, ['reserve', 'kaspi', 'reserve']);
+  assert.deepEqual(reserve.mock.calls.map(({ arguments: args }) => args), [[ip, 1], [ip, 1]]);
 });
 
 test('loads order entries from a fixed Kaspi endpoint and paginates them locally', async (t) => {
