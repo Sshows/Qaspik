@@ -26,6 +26,7 @@ async function main() {
   while (!controller.signal.aborted) {
     const startedAt = new Date().toISOString();
     try {
+      await engine.touchWorkerHeartbeat();
       const summary = await engine.runAllActiveStores({ telegramBot });
       const totalChanges = summary.results.reduce((acc, r) => acc + (r.changes?.length || 0), 0);
       console.log(

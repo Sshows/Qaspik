@@ -4,9 +4,31 @@ const { scanKaspiOffers, extractMasterSku } = require('./kaspiMarketScanner');
 const { evaluateLiveOffers } = require('./cloudBotEngine');
 const { readFeed } = require('./priceFeed');
 
-function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSecret = process.env.QASPIK_CRON_SECRET } = {}) {
+function createBotRouter({
+  engine,
+  fetchImpl = fetch,
+  telegramBot = null,
+  cronSecret = process.env.QASPIK_CRON_SECRET,
+  adminSecret = process.env.QASPIK_ADMIN_SECRET
+} = {}) {
   const router = express.Router();
   router.use(express.json({ limit: '8mb' }));
+
+  function verifySecretHeader(expected, received) {
+    if (!expected || !received) return false;
+    const a = Buffer.from(String(expected));
+    const b = Buffer.from(String(received));
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+
+  function handleError(res, error, fallbackStatus = 400) {
+    const status = error?.status || fallbackStatus;
+    return res.status(status).json({
+      ok: false,
+      code: error?.code,
+      error: error?.message || 'Ошибка обработки запроса'
+    });
+  }
 
   function buildFeedUrl(req, feedToken) {
     const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
@@ -78,7 +100,7 @@ function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSe
         telegramDeepLink: `https://t.me/Qaspik_bot?start=${created.telegramLinkCode}`
       });
     } catch (error) {
-      return res.status(400).json({ ok: false, error: error.message || 'Не удалось подключить XML-прайс' });
+      return handleError(res, error, 400);
     }
   });
 
@@ -86,35 +108,44 @@ function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSe
    * 3. Получение состояния подключенного магазина клиента
    */
   router.get('/bot/stores/:storeId', async (req, res) => {
-    const manageToken = req.get('x-store-token') || '';
-    const store = await engine.verifyStoreAccess(req.params.storeId, manageToken);
-    if (!store) {
-      return res.status(401).json({ ok: false, error: 'Неверный ключ управления магазином' });
+    try {
+      const manageToken = req.get('x-store-token') || '';
+      const store = await engine.verifyStoreAccess(req.params.storeId, manageToken);
+      if (!store) {
+        return res.status(401).json({ ok: false, error: 'Неверный ключ управления магазином' });
+      }
+
+      const summary = engine.parseKaspiCatalogSummary(store.catalog_xml);
+      const [events, workerStatus] = await Promise.all([
+        engine.repository.listEventsForStore(store.id, 30),
+        engine.getWorkerStatus()
+      ]);
+
+      return res.json({
+        ok: true,
+        storeId: store.id,
+        merchantId: store.merchant_id,
+        companyName: store.company_name,
+        cityId: store.city_id,
+        botEnabled: store.bot_enabled,
+        subscriptionActive: store.subscription_active,
+        subscriptionExpiresAt: store.subscription_expires_at,
+        workerHeartbeatAt: workerStatus.lastHeartbeatAt,
+        workerOnline: workerStatus.online,
+        feedToken: store.feed_token,
+        feedUrl: buildFeedUrl(req, store.feed_token),
+        telegramLinked: Boolean(store.telegram_chat_id),
+        telegramLinkCode: store.telegram_link_code,
+        telegramDeepLink: `https://t.me/Qaspik_bot?start=${store.telegram_link_code}`,
+        lastRunAt: store.last_run_at,
+        positions: summary.positions,
+        rules: store.rules_json,
+        standings: store.last_standings_json || {},
+        events
+      });
+    } catch (error) {
+      return handleError(res, error, 500);
     }
-
-    const summary = engine.parseKaspiCatalogSummary(store.catalog_xml);
-    const events = await engine.repository.listEventsForStore(store.id, 30);
-
-    return res.json({
-      ok: true,
-      storeId: store.id,
-      merchantId: store.merchant_id,
-      companyName: store.company_name,
-      cityId: store.city_id,
-      botEnabled: store.bot_enabled,
-      subscriptionActive: store.subscription_active,
-      subscriptionExpiresAt: store.subscription_expires_at,
-      feedToken: store.feed_token,
-      feedUrl: buildFeedUrl(req, store.feed_token),
-      telegramLinked: Boolean(store.telegram_chat_id),
-      telegramLinkCode: store.telegram_link_code,
-      telegramDeepLink: `https://t.me/Qaspik_bot?start=${store.telegram_link_code}`,
-      lastRunAt: store.last_run_at,
-      positions: summary.positions,
-      rules: store.rules_json,
-      standings: store.last_standings_json || {},
-      events
-    });
   });
 
   /**
@@ -126,7 +157,7 @@ function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSe
       const result = await engine.updateStoreRules(req.params.storeId, manageToken, req.body || {});
       return res.status(result.ok ? 200 : (result.status || 400)).json(result);
     } catch (error) {
-      return res.status(400).json({ ok: false, error: error.message || 'Не удалось сохранить правила' });
+      return handleError(res, error, 400);
     }
   });
 
@@ -134,14 +165,37 @@ function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSe
    * 5. Немедленный запуск цикла мониторинга и обновления цен для магазина клиента
    */
   router.post('/bot/stores/:storeId/run', async (req, res) => {
-    const manageToken = req.get('x-store-token') || '';
-    const store = await engine.verifyStoreAccess(req.params.storeId, manageToken);
-    if (!store) {
-      return res.status(401).json({ ok: false, error: 'Неверный ключ управления магазином' });
-    }
+    try {
+      const manageToken = req.get('x-store-token') || '';
+      const store = await engine.verifyStoreAccess(req.params.storeId, manageToken);
+      if (!store) {
+        return res.status(401).json({ ok: false, error: 'Неверный ключ управления магазином' });
+      }
 
-    const result = await engine.runStoreCycle(store, { fetchImpl, telegramBot });
-    return res.json(result);
+      const result = await engine.runStoreCycle(store, { fetchImpl, telegramBot });
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error, 500);
+    }
+  });
+
+  /**
+   * 5b. Управление подпиской магазина оператором (10 000 ₸ / мес)
+   */
+  router.post('/bot/admin/stores/:storeId/subscription', async (req, res) => {
+    if (!adminSecret) {
+      return res.status(503).json({ ok: false, error: 'QASPIK_ADMIN_SECRET не настроен' });
+    }
+    if (!verifySecretHeader(adminSecret, req.get('x-admin-secret'))) {
+      return res.status(403).json({ ok: false, error: 'Неверный ключ оператора' });
+    }
+    try {
+      const { active, expiresAt } = req.body || {};
+      const result = await engine.setStoreSubscription(req.params.storeId, { active, expiresAt });
+      return res.status(result.ok ? 200 : (result.status || 400)).json(result);
+    } catch (error) {
+      return handleError(res, error, 400);
+    }
   });
 
   /**
@@ -154,7 +208,12 @@ function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSe
       return res.status(404).end();
     }
 
-    const store = await engine.repository.getStoreByFeedToken(token);
+    let store;
+    try {
+      store = await engine.repository.getStoreByFeedToken(token);
+    } catch (_) {
+      return res.status(503).end();
+    }
     if (!store || !store.catalog_xml) {
       return res.status(404).end();
     }
@@ -181,14 +240,17 @@ function createBotRouter({ engine, fetchImpl = fetch, telegramBot = null, cronSe
       return res.status(503).json({ ok: false, error: 'QASPIK_CRON_SECRET не настроен' });
     }
     const headerSecret = req.get('x-cron-secret') || (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    const a = Buffer.from(secret);
-    const b = Buffer.from(headerSecret);
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    if (!verifySecretHeader(secret, headerSecret)) {
       return res.status(403).json({ ok: false, error: 'Неверный ключ крона' });
     }
 
-    const summary = await engine.runAllActiveStores({ fetchImpl, telegramBot });
-    return res.json(summary);
+    try {
+      await engine.touchWorkerHeartbeat();
+      const summary = await engine.runAllActiveStores({ fetchImpl, telegramBot });
+      return res.json(summary);
+    } catch (error) {
+      return handleError(res, error, 500);
+    }
   });
 
   router.use((error, _req, res, _next) => {

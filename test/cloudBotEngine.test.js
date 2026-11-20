@@ -4,8 +4,13 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const express = require('express');
-const { extractMasterSku, scanKaspiOffers } = require('../src/kaspiMarketScanner');
-const { createCloudBotRepository, createCloudBotEngine, evaluateLiveOffers } = require('../src/cloudBotEngine');
+const { extractMasterSku } = require('../src/kaspiMarketScanner');
+const {
+  StorageUnavailableError,
+  createCloudBotRepository,
+  createCloudBotEngine,
+  evaluateLiveOffers
+} = require('../src/cloudBotEngine');
 const { createBotRouter } = require('../src/botRoutes');
 const { createTelegramBot } = require('../src/telegramBot');
 
@@ -38,7 +43,6 @@ test('evaluateLiveOffers handles alphanumeric Kaspi merchantIds, undercuts to #1
   assert.equal(decision.newPrice, 25490);
   assert.equal(decision.changed, true);
 
-  // If a real competitor drops below minPrice, floor guard prevents selling at a loss
   const floorDecision = evaluateLiveOffers({
     currentPrice: 25490,
     rule: { sku: 'DEMO100', masterSku: '113137790', cityId: '750000000', minPrice: 24000, maxPrice: 28000, standardStep: 10, nearFloorWindow: 200, atFloor: 'hold' },
@@ -52,9 +56,31 @@ test('evaluateLiveOffers handles alphanumeric Kaspi merchantIds, undercuts to #1
   assert.equal(floorDecision.newPrice, 25490);
 });
 
-test('multi-client cloud bot registers XML, runs live scan cycle, updates served XML feed, and links Telegram', async () => {
+test('production repository fails closed with 503 when Supabase RPC is unconfigured or fails', async () => {
+  const unconfigured = createCloudBotRepository({
+    supabaseUrl: '',
+    supabaseServiceKey: '',
+    requireRemote: true
+  });
+  await assert.rejects(() => unconfigured.getStoreById('st_1'), StorageUnavailableError);
+
+  const failingRemote = createCloudBotRepository({
+    supabaseUrl: 'https://example.supabase.co',
+    supabaseServiceKey: 'service_role_secret',
+    requireRemote: true,
+    fetchImpl: async () => ({ ok: false, status: 500, text: async () => 'err' })
+  });
+  await assert.rejects(() => failingRemote.getStoreById('st_1'), StorageUnavailableError);
+});
+
+test('multi-client cloud bot requires subscription activation, reports XML_PREPARED honestly, and tracks worker heartbeat', async () => {
   const tmpFile = path.join(os.tmpdir(), `qaspik-cloud-test-${Date.now()}.json`);
-  const repo = createCloudBotRepository({ supabaseUrl: '', supabaseKey: '', fallbackFile: tmpFile });
+  const repo = createCloudBotRepository({
+    supabaseUrl: '',
+    supabaseServiceKey: '',
+    requireRemote: false,
+    fallbackFile: tmpFile
+  });
   const engine = createCloudBotEngine(repo);
 
   const mockFetch = async () => ({
@@ -78,14 +104,20 @@ test('multi-client cloud bot registers XML, runs live scan cycle, updates served
   };
 
   const app = express();
-  app.use('/api', createBotRouter({ engine, fetchImpl: mockFetch, telegramBot: fakeTg, cronSecret: 'cron_test_secret' }));
+  app.use('/api', createBotRouter({
+    engine,
+    fetchImpl: mockFetch,
+    telegramBot: fakeTg,
+    cronSecret: 'cron_test_secret',
+    adminSecret: 'admin_test_secret'
+  }));
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    // 1. Register client store from full XML
+    // 1. Register client store -> subscription starts INACTIVE by default
     const regRes = await fetch(`${baseUrl}/api/bot/stores`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -94,8 +126,7 @@ test('multi-client cloud bot registers XML, runs live scan cycle, updates served
     assert.equal(regRes.status, 201);
     const created = await regRes.json();
     assert.equal(created.ok, true);
-    assert.equal(created.merchantId, '123456');
-    assert.match(created.feedUrl, /\/api\/feed\/qf_[a-f0-9]+\/catalog\.xml$/);
+    assert.equal(created.subscriptionActive, false);
 
     // 2. Link Telegram chat via /start link_...
     const bot = createTelegramBot('123456:test_token', engine);
@@ -127,7 +158,29 @@ test('multi-client cloud bot registers XML, runs live scan cycle, updates served
     });
     assert.equal(rulesRes.status, 200);
 
-    // 4. Run cycle via cron endpoint
+    // 4. Cron before subscription activation -> 0 stores processed
+    const cronBefore = await fetch(`${baseUrl}/api/bot/cron`, {
+      method: 'POST',
+      headers: { 'X-Cron-Secret': 'cron_test_secret' }
+    });
+    assert.equal((await cronBefore.json()).storesProcessed, 0);
+
+    // 5. Operator activates subscription via protected admin endpoint
+    const badAdmin = await fetch(`${baseUrl}/api/bot/admin/stores/${created.storeId}/subscription`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': 'wrong' },
+      body: JSON.stringify({ active: true })
+    });
+    assert.equal(badAdmin.status, 403);
+
+    const okAdmin = await fetch(`${baseUrl}/api/bot/admin/stores/${created.storeId}/subscription`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': 'admin_test_secret' },
+      body: JSON.stringify({ active: true, expiresAt: '2099-01-01T00:00:00Z' })
+    });
+    assert.equal(okAdmin.status, 200);
+
+    // 6. Cron after activation -> prepares XML price 25390, sends honest XML_PREPARED message, updates heartbeat
     const cronRes = await fetch(`${baseUrl}/api/bot/cron`, {
       method: 'POST',
       headers: { 'X-Cron-Secret': 'cron_test_secret' }
@@ -136,10 +189,18 @@ test('multi-client cloud bot registers XML, runs live scan cycle, updates served
     const cronData = await cronRes.json();
     assert.equal(cronData.storesProcessed, 1);
     assert.equal(cronData.results[0].changes[0].price, 25390);
+    assert.equal(cronData.results[0].events[0].decision_code, 'XML_PREPARED');
     assert.equal(sentMessages.length, 1);
-    assert.equal(sentMessages[0].chatId, '777001');
+    assert.match(sentMessages[0].text, /Цена подготовлена в XML-прайсе/);
 
-    // 5. Verify public HTTPS XML feed reflects updated price 25390
+    // 7. Store status reports workerOnline === true
+    const stateRes = await fetch(`${baseUrl}/api/bot/stores/${created.storeId}`, {
+      headers: { 'X-Store-Token': created.manageToken }
+    });
+    const stateData = await stateRes.json();
+    assert.equal(stateData.workerOnline, true);
+
+    // 8. Public HTTPS XML feed reflects updated price 25390 while keeping full catalog intact
     const feedRes = await fetch(created.feedUrl);
     assert.equal(feedRes.status, 200);
     const updatedXml = await feedRes.text();

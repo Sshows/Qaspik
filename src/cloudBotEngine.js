@@ -7,6 +7,16 @@ const { getUndercutStep } = require('./pricePolicy');
 const { extractMasterSku, scanKaspiOffers, CITIES } = require('./kaspiMarketScanner');
 
 const KASPI_NS = 'kaspiShopping';
+const WORKER_ONLINE_WINDOW_MS = 3 * 60 * 1000;
+
+class StorageUnavailableError extends Error {
+  constructor(message = 'Хранилище Supabase временно недоступно. Повторите позже.') {
+    super(message);
+    this.name = 'StorageUnavailableError';
+    this.status = 503;
+    this.code = 'STORAGE_UNAVAILABLE';
+  }
+}
 
 function sha256Hex(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -264,55 +274,81 @@ function evaluateLiveOffers({
   };
 }
 
-function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetchImpl = fetch } = {}) {
+function createCloudBotRepository({
+  supabaseUrl,
+  supabaseServiceKey,
+  requireRemote = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production'),
+  fallbackFile,
+  fetchImpl = fetch
+} = {}) {
   const url = (supabaseUrl ?? process.env.SUPABASE_URL ?? '').replace(/\/+$/, '');
-  const key = supabaseKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY ?? '';
+  const key = supabaseServiceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
   const hasSupabase = Boolean(url && key);
-  const localPath = fallbackFile || (process.env.VERCEL ? '/tmp/qaspik-cloud-stores.json' : path.join(__dirname, '..', 'data', 'cloud-stores.json'));
+  const localPath = fallbackFile || path.join(__dirname, '..', 'data', 'cloud-stores.json');
 
-  const memory = { stores: new Map(), events: [] };
+  const memory = { stores: new Map(), events: [], workerHeartbeatAt: null };
 
-  async function sbRequest(restPath, { method = 'GET', body, prefer } = {}) {
-    if (!hasSupabase) return null;
-    try {
-      const headers = {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        Accept: 'application/json'
-      };
-      if (body !== undefined) headers['Content-Type'] = 'application/json';
-      if (prefer) headers.Prefer = prefer;
-      const res = await fetchImpl(`${url}/rest/v1/${restPath}`, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(5000)
-      });
-      if (!res.ok) return null;
-      if (res.status === 204) return [];
-      return await res.json();
-    } catch (_) {
-      return null;
+  async function rpc(fnName, params = {}) {
+    if (!hasSupabase) {
+      if (requireRemote) {
+        throw new StorageUnavailableError('В production требуется настройка SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY.');
+      }
+      return { usedRemote: false, data: null };
     }
+
+    let res;
+    try {
+      res = await fetchImpl(`${url}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(6000)
+      });
+    } catch (_) {
+      throw new StorageUnavailableError('Не удалось связаться с базой данных Supabase.');
+    }
+
+    if (!res.ok) {
+      throw new StorageUnavailableError(`Ошибка хранилища Supabase (${res.status}).`);
+    }
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+    return { usedRemote: true, data };
   }
 
   function loadLocal() {
+    if (requireRemote) return;
     try {
       if (fs.existsSync(localPath)) {
         const parsed = JSON.parse(fs.readFileSync(localPath, 'utf8'));
         for (const row of parsed.stores || []) memory.stores.set(row.id, row);
         memory.events = parsed.events || [];
+        memory.workerHeartbeatAt = parsed.workerHeartbeatAt || null;
       }
     } catch (_) {}
   }
 
   function saveLocal() {
+    if (requireRemote) return;
     try {
       const dir = path.dirname(localPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(
         localPath,
-        JSON.stringify({ stores: Array.from(memory.stores.values()), events: memory.events.slice(0, 200) }, null, 2),
+        JSON.stringify(
+          {
+            stores: Array.from(memory.stores.values()),
+            events: memory.events.slice(0, 200),
+            workerHeartbeatAt: memory.workerHeartbeatAt
+          },
+          null,
+          2
+        ),
         'utf8'
       );
     } catch (_) {}
@@ -322,31 +358,24 @@ function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetc
 
   async function upsertStore(store) {
     const record = { ...store, updated_at: new Date().toISOString() };
+    const remote = await rpc('qaspik_upsert_cloud_store', { p_store: record });
+    if (remote.usedRemote) {
+      return remote.data;
+    }
     memory.stores.set(record.id, record);
     saveLocal();
-    await sbRequest('qaspik_cloud_stores?on_conflict=id', {
-      method: 'POST',
-      body: record,
-      prefer: 'resolution=merge-duplicates,return=minimal'
-    });
     return record;
   }
 
   async function getStoreById(storeId) {
-    const rows = await sbRequest(`qaspik_cloud_stores?id=eq.${encodeURIComponent(storeId)}&limit=1`);
-    if (Array.isArray(rows) && rows[0]) {
-      memory.stores.set(rows[0].id, rows[0]);
-      return rows[0];
-    }
+    const remote = await rpc('qaspik_get_cloud_store', { p_id: storeId });
+    if (remote.usedRemote) return remote.data || null;
     return memory.stores.get(storeId) || null;
   }
 
   async function getStoreByFeedToken(feedToken) {
-    const rows = await sbRequest(`qaspik_cloud_stores?feed_token=eq.${encodeURIComponent(feedToken)}&limit=1`);
-    if (Array.isArray(rows) && rows[0]) {
-      memory.stores.set(rows[0].id, rows[0]);
-      return rows[0];
-    }
+    const remote = await rpc('qaspik_get_cloud_store', { p_feed_token: feedToken });
+    if (remote.usedRemote) return remote.data || null;
     for (const store of memory.stores.values()) {
       if (store.feed_token === feedToken) return store;
     }
@@ -354,11 +383,8 @@ function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetc
   }
 
   async function getStoreByTelegramLinkCode(code) {
-    const rows = await sbRequest(`qaspik_cloud_stores?telegram_link_code=eq.${encodeURIComponent(code)}&limit=1`);
-    if (Array.isArray(rows) && rows[0]) {
-      memory.stores.set(rows[0].id, rows[0]);
-      return rows[0];
-    }
+    const remote = await rpc('qaspik_get_cloud_store', { p_tg_code: code });
+    if (remote.usedRemote) return remote.data || null;
     for (const store of memory.stores.values()) {
       if (store.telegram_link_code === code) return store;
     }
@@ -367,11 +393,8 @@ function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetc
 
   async function getStoreByTelegramChatId(chatId) {
     const id = String(chatId);
-    const rows = await sbRequest(`qaspik_cloud_stores?telegram_chat_id=eq.${encodeURIComponent(id)}&order=updated_at.desc&limit=1`);
-    if (Array.isArray(rows) && rows[0]) {
-      memory.stores.set(rows[0].id, rows[0]);
-      return rows[0];
-    }
+    const remote = await rpc('qaspik_get_cloud_store', { p_tg_chat_id: id });
+    if (remote.usedRemote) return remote.data || null;
     for (const store of memory.stores.values()) {
       if (String(store.telegram_chat_id) === id) return store;
     }
@@ -379,12 +402,12 @@ function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetc
   }
 
   async function listActiveStores() {
-    const rows = await sbRequest('qaspik_cloud_stores?bot_enabled=eq.true&subscription_active=eq.true');
-    if (Array.isArray(rows) && rows.length > 0) {
-      for (const row of rows) memory.stores.set(row.id, row);
-      return rows;
-    }
-    return Array.from(memory.stores.values()).filter((s) => s.bot_enabled && s.subscription_active);
+    const remote = await rpc('qaspik_list_active_cloud_stores');
+    if (remote.usedRemote) return Array.isArray(remote.data) ? remote.data : [];
+    const now = Date.now();
+    return Array.from(memory.stores.values()).filter(
+      (s) => s.bot_enabled && s.subscription_active && Date.parse(s.subscription_expires_at) > now
+    );
   }
 
   async function addPriceEvent(event) {
@@ -393,21 +416,32 @@ function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetc
       created_at: new Date().toISOString(),
       ...event
     };
+    const remote = await rpc('qaspik_add_price_event', { p_event: row });
+    if (remote.usedRemote) return remote.data;
     memory.events.unshift(row);
     if (memory.events.length > 200) memory.events = memory.events.slice(0, 200);
     saveLocal();
-    await sbRequest('qaspik_price_events', {
-      method: 'POST',
-      body: row,
-      prefer: 'return=minimal'
-    });
     return row;
   }
 
   async function listEventsForStore(storeId, limit = 30) {
-    const rows = await sbRequest(`qaspik_price_events?store_id=eq.${encodeURIComponent(storeId)}&order=created_at.desc&limit=${limit}`);
-    if (Array.isArray(rows) && rows.length > 0) return rows;
+    const remote = await rpc('qaspik_list_price_events', { p_store_id: storeId, p_limit: limit });
+    if (remote.usedRemote) return Array.isArray(remote.data) ? remote.data : [];
     return memory.events.filter((e) => e.store_id === storeId).slice(0, limit);
+  }
+
+  async function touchWorkerHeartbeat() {
+    const remote = await rpc('qaspik_touch_worker_heartbeat');
+    if (remote.usedRemote) return remote.data;
+    memory.workerHeartbeatAt = new Date().toISOString();
+    saveLocal();
+    return memory.workerHeartbeatAt;
+  }
+
+  async function getWorkerHeartbeat() {
+    const remote = await rpc('qaspik_get_worker_heartbeat');
+    if (remote.usedRemote) return remote.data || null;
+    return memory.workerHeartbeatAt;
   }
 
   return {
@@ -418,7 +452,9 @@ function createCloudBotRepository({ supabaseUrl, supabaseKey, fallbackFile, fetc
     getStoreByTelegramChatId,
     listActiveStores,
     addPriceEvent,
-    listEventsForStore
+    listEventsForStore,
+    touchWorkerHeartbeat,
+    getWorkerHeartbeat
   };
 }
 
@@ -444,8 +480,8 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
       rules_json: defaultRulesConfig(),
       last_standings_json: {},
       bot_enabled: true,
-      subscription_active: true,
-      subscription_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      subscription_active: false,
+      subscription_expires_at: new Date().toISOString(),
       last_run_at: null,
       created_at: new Date().toISOString()
     });
@@ -460,8 +496,41 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
       telegramLinkCode,
       positions: summary.positions,
       rules: record.rules_json,
-      botEnabled: record.bot_enabled
+      botEnabled: record.bot_enabled,
+      subscriptionActive: record.subscription_active
     };
+  }
+
+  async function setStoreSubscription(storeId, { active, expiresAt }) {
+    const store = await repository.getStoreById(storeId);
+    if (!store) return { ok: false, status: 404, error: 'Магазин не найден' };
+    const nextActive = Boolean(active);
+    const nextExpires = expiresAt
+      ? new Date(expiresAt).toISOString()
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const updated = await repository.upsertStore({
+      ...store,
+      subscription_active: nextActive,
+      subscription_expires_at: nextExpires
+    });
+    return {
+      ok: true,
+      storeId: updated.id,
+      subscriptionActive: updated.subscription_active,
+      subscriptionExpiresAt: updated.subscription_expires_at
+    };
+  }
+
+  async function touchWorkerHeartbeat() {
+    return repository.touchWorkerHeartbeat();
+  }
+
+  async function getWorkerStatus() {
+    const lastHeartbeatAt = await repository.getWorkerHeartbeat();
+    const online = Boolean(
+      lastHeartbeatAt && Date.now() - Date.parse(lastHeartbeatAt) <= WORKER_ONLINE_WINDOW_MS
+    );
+    return { lastHeartbeatAt, online };
   }
 
   async function verifyStoreAccess(storeId, manageToken) {
@@ -644,7 +713,7 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
       if (!d.changed && d.code !== 'FLOOR_GUARD') continue;
       const model = modelBySku.get(d.sku) || d.sku;
       const msg = d.changed
-        ? `🤖 ${model}: ${d.currentPrice.toLocaleString('ru-RU')} ₸ → ${d.newPrice.toLocaleString('ru-RU')} ₸ (конкурент ${d.competitorName}: ${d.competitorPrice?.toLocaleString('ru-RU')} ₸)`
+        ? `📄 XML_PREPARED · ${model}: ${d.currentPrice.toLocaleString('ru-RU')} ₸ → ${d.newPrice.toLocaleString('ru-RU')} ₸ (подготовлено в XML-фиде; конкурент ${d.competitorName}: ${d.competitorPrice?.toLocaleString('ru-RU')} ₸)`
         : `🛡 ${model}: сработал защитный порог ${d.minPrice.toLocaleString('ru-RU')} ₸ (конкурент ${d.competitorName}: ${d.competitorPrice?.toLocaleString('ru-RU')} ₸)`;
 
       const ev = await repository.addPriceEvent({
@@ -656,7 +725,7 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
         new_price: d.newPrice,
         competitor_name: d.competitorName || null,
         competitor_price: d.competitorPrice || null,
-        decision_code: d.code,
+        decision_code: d.changed ? 'XML_PREPARED' : d.code,
         message: msg
       });
       loggedEvents.push(ev);
@@ -665,11 +734,11 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
         await telegramBot.telegram
           .sendMessage(
             store.telegram_chat_id,
-            `⚡ *Qaspik обновил цену в XML-прайсе*\n\n` +
+            `📄 *Цена подготовлена в XML-прайсе (ожидает автозагрузки Kaspi)*\n\n` +
               `🏪 Магазин: *${store.company_name}*\n` +
               `📦 Товар: *${model}* (\`${d.sku}\`)\n` +
               `👀 Конкурент (${d.competitorName}): \`${d.competitorPrice?.toLocaleString('ru-RU')} ₸\`\n` +
-              `💰 Цена: ${d.currentPrice.toLocaleString('ru-RU')} ₸ → *${d.newPrice.toLocaleString('ru-RU')} ₸*\n` +
+              `💰 Новая цена в XML: ${d.currentPrice.toLocaleString('ru-RU')} ₸ → *${d.newPrice.toLocaleString('ru-RU')} ₸*\n` +
               `🛡 Порог: \`${d.minPrice.toLocaleString('ru-RU')} ₸\``,
             { parse_mode: 'Markdown' }
           )
@@ -714,6 +783,9 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
     registerStore,
     verifyStoreAccess,
     updateStoreRules,
+    setStoreSubscription,
+    touchWorkerHeartbeat,
+    getWorkerStatus,
     runStoreCycle,
     runAllActiveStores,
     linkTelegramChat
@@ -721,6 +793,7 @@ function createCloudBotEngine(repository = createCloudBotRepository()) {
 }
 
 module.exports = {
+  StorageUnavailableError,
   parseKaspiCatalogSummary,
   evaluateLiveOffers,
   createCloudBotRepository,
