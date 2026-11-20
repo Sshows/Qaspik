@@ -298,14 +298,17 @@ function createCloudBotRepository({
 
     let res;
     try {
+      const headers = {
+        apikey: key,
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      };
+      if (!key.startsWith('sb_secret_')) {
+        headers.Authorization = `Bearer ${key}`;
+      }
       res = await fetchImpl(`${url}/rest/v1/rpc/${fnName}`, {
         method: 'POST',
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          Accept: 'application/json',
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify(params),
         signal: AbortSignal.timeout(6000)
       });
