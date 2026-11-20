@@ -1,7 +1,7 @@
 const { timingSafeEqual } = require('node:crypto');
 const { Telegraf } = require('telegraf');
 
-function createTelegramBot(token) {
+function createTelegramBot(token, engine = null) {
   const bot = new Telegraf(token, { handlerTimeout: 8000 });
 
   bot.use((ctx, next) => {
@@ -11,11 +11,71 @@ function createTelegramBot(token) {
   });
 
   const explain = (ctx) => ctx.reply(
-    'Qaspik присылает уведомления о подтверждённых изменениях цены. ' +
-      'Подключение нового магазина через Telegram пока недоступно.'
+    'Qaspik присылает уведомления о подтверждённых изменениях цены и мониторит ваш магазин Kaspi 24/7.\n\n' +
+      'Чтобы подключить магазин:\n' +
+      '1. Откройте раздел «Автобот 24/7» на сайте Qaspik.\n' +
+      '2. Загрузите свой XML-прайс из кабинета Kaspi и нажмите «Привязать Telegram».\n\n' +
+      'Команды после привязки:\n' +
+      '/status — текущие позиции и цены\n' +
+      '/scan — проверить конкурентов на Kaspi прямо сейчас'
   );
-  bot.start(explain);
+
+  bot.start(async (ctx) => {
+    const payload = String(ctx.startPayload || '').trim();
+    if (engine && /^link_[a-f0-9]{6,32}$/.test(payload)) {
+      const linked = await engine.linkTelegramChat(payload, ctx.chat.id);
+      if (!linked.ok) {
+        return ctx.reply('Не удалось найти магазин по этой ссылке. Сформируйте ссылку заново на сайте Qaspik.');
+      }
+      return ctx.reply(
+        `Магазин «${linked.store.company_name}» (ID ${linked.store.merchant_id}) привязан к этому Telegram.\n\n` +
+          'Теперь вы будете получать уведомления при каждом автоматическом обновлении цены.\n' +
+          'Используйте /status или /scan для управления ботом.'
+      );
+    }
+    return explain(ctx);
+  });
+
   bot.help(explain);
+
+  bot.command('status', async (ctx) => {
+    if (!engine) return explain(ctx);
+    const store = await engine.repository.getStoreByTelegramChatId(ctx.chat.id);
+    if (!store) {
+      return ctx.reply('К этому чату ещё не привязан магазин. Подключите его в разделе «Автобот 24/7» на сайте Qaspik.');
+    }
+    const rules = store.rules_json?.products || [];
+    const standings = store.last_standings_json || {};
+    const lines = [
+      `Магазин: ${store.company_name} (ID ${store.merchant_id})`,
+      `Автобот 24/7: ${store.bot_enabled ? 'ВКЛЮЧЁН' : 'НА ПАУЗЕ'}`,
+      `Товаров под защитой: ${rules.length}`,
+      store.last_run_at ? `Последняя проверка: ${new Date(store.last_run_at).toLocaleString('ru-RU')}` : 'Ещё не проверялся'
+    ];
+    for (const item of Object.values(standings).slice(0, 8)) {
+      const posText = item.ownPosition ? `${item.ownPosition} место` : 'проверено';
+      lines.push(
+        `\n• ${item.model || item.sku}: ${Number(item.newPrice ?? item.currentPrice).toLocaleString('ru-RU')} ₸ (${posText}) | Порог: ${Number(item.minPrice).toLocaleString('ru-RU')} ₸`
+      );
+    }
+    return ctx.reply(lines.join('\n'));
+  });
+
+  bot.command('scan', async (ctx) => {
+    if (!engine) return explain(ctx);
+    const store = await engine.repository.getStoreByTelegramChatId(ctx.chat.id);
+    if (!store) {
+      return ctx.reply('Сначала привяжите магазин в разделе «Автобот 24/7» на сайте Qaspik.');
+    }
+    await ctx.reply('Запускаю живую проверку конкурентов на Kaspi.kz...');
+    const result = await engine.runStoreCycle(store, { telegramBot: bot });
+    if (!result.ok) {
+      return ctx.reply('Не удалось выполнить проверку.');
+    }
+    return ctx.reply(
+      `Проверка завершена.\nТоваров проверено: ${result.checkedProducts}\nОбновлено цен в XML-прайсе: ${result.changes.length}`
+    );
+  });
 
   return bot;
 }

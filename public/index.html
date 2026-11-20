@@ -1234,6 +1234,10 @@
       </div>
 
       <nav class="sidebar-nav">
+        <button class="nav-item" id="nav-autopilot" onclick="switchPage('autopilot')">
+          <span class="nav-item-left">🤖 Автобот 24/7</span>
+          <span class="nav-badge" style="background:var(--green-bg); color:var(--green-text);">LIVE</span>
+        </button>
         <button class="nav-item active" id="nav-products" onclick="switchPage('products', 'damping')">
           <span class="nav-item-left">📦 Товары и Демпинг</span>
           <span class="nav-badge" id="badgeTotalProducts">0</span>
@@ -1288,6 +1292,181 @@
           </div>
         </div>
       </header>
+
+      <!-- PAGE: LIVE AUTOPILOT 24/7 -->
+      <main class="workspace" id="page-autopilot" style="display:none;">
+        <section class="panel" style="margin-bottom:16px;">
+          <div class="panel-title">
+            <span>Живой мониторинг карточек Kaspi.kz</span>
+            <span class="status-pill working">Реальные продавцы</span>
+          </div>
+          <form id="liveScanForm" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="field" style="flex:2; min-width:240px;">
+              <label for="liveScanQuery">Ссылка с kaspi.kz или код товара (masterSku)</label>
+              <input id="liveScanQuery" type="text" placeholder="Например: 113137790 или https://kaspi.kz/shop/p/..." value="113137790" />
+            </div>
+            <div class="field" style="min-width:140px;">
+              <label for="liveScanCity">Город</label>
+              <select id="liveScanCity">
+                <option value="750000000">Алматы</option>
+                <option value="710000000">Астана</option>
+                <option value="790000000">Шымкент</option>
+                <option value="351010000">Караганда</option>
+                <option value="151010000">Актобе</option>
+              </select>
+            </div>
+            <div class="field" style="width:110px;">
+              <label for="liveScanStep">Шаг (₸)</label>
+              <input id="liveScanStep" type="number" min="1" value="10" />
+            </div>
+            <div class="field" style="width:140px;">
+              <label for="liveScanMinPrice">Ваш порог (₸)</label>
+              <input id="liveScanMinPrice" type="number" min="1" placeholder="Авто" />
+            </div>
+            <button class="btn btn-primary" type="submit">Проверить Kaspi</button>
+          </form>
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <span style="font-size:12px; color:var(--text-muted);">Быстрая проверка:</span>
+            <button class="filter-pill" type="button" data-scan-sample="113137790">Код 113137790</button>
+            <button class="filter-pill" type="button" data-scan-sample="123726722">Код 123726722</button>
+            <button class="filter-pill" type="button" data-scan-sample="102298404">Код 102298404</button>
+          </div>
+          <p id="liveScanStatus" class="settings-help" style="margin-top:10px;"></p>
+          <div id="liveScanResults" hidden style="margin-top:12px;">
+            <div id="liveScanSummary" style="background:var(--green-bg); border:1px solid #A7F3D0; border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:13px;"></div>
+            <div class="table-container" style="border-radius:8px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Место</th>
+                    <th>Продавец Kaspi</th>
+                    <th>Цена</th>
+                    <th>Рейтинг</th>
+                    <th>Наличие</th>
+                  </tr>
+                </thead>
+                <tbody id="liveScanBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="cloudStoreConnectBox">
+          <div class="panel-title">
+            <span>Подключить магазин клиента к Автоботу 24/7</span>
+            <span class="status-pill disabled">Облачный XML + Telegram</span>
+          </div>
+          <p class="settings-help" style="margin-bottom:12px;">
+            Загрузите полный XML-прайс из кабинета Kaspi. Qaspik выдаст персональную HTTPS-ссылку прайса для автозагрузки Kaspi и кнопку привязки Telegram @Qaspik_bot.
+          </p>
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="field" style="min-width:160px;">
+              <label for="cloudConnectCity">Город магазина</label>
+              <select id="cloudConnectCity">
+                <option value="750000000">Алматы</option>
+                <option value="710000000">Астана</option>
+                <option value="790000000">Шымкент</option>
+                <option value="351010000">Караганда</option>
+                <option value="151010000">Актобе</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="cloudXmlFile">Полный XML-файл магазина (.xml)</label>
+              <input id="cloudXmlFile" type="file" accept=".xml,text/xml,application/xml" />
+            </div>
+            <button class="btn" type="button" id="cloudLoadSampleXml">Тестовый XML магазина</button>
+          </div>
+          <p id="cloudConnectStatus" class="settings-help" style="margin-top:10px;"></p>
+        </section>
+
+        <section class="panel" id="cloudStoreDashboard" hidden>
+          <div class="panel-title">
+            <div>
+              <span id="cloudStoreName">Магазин</span>
+              <div id="cloudStoreMeta" style="font-size:12px; font-weight:400; color:var(--text-muted); margin-top:2px;"></div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="status-pill disabled" id="cloudTgStatus">Telegram</span>
+              <label class="switch" title="Включить/выключить 24/7 воркер">
+                <input type="checkbox" id="cloudBotEnabled" checked />
+                <span class="slider"></span>
+              </label>
+              <button class="btn" type="button" id="cloudDisconnectBtn" style="height:30px; font-size:12px;">Сменить магазин</button>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-bottom:16px; background:#F9FAFB; padding:12px; border-radius:8px; border:1px solid var(--border);">
+            <div class="field">
+              <label for="cloudFeedUrl">Персональная HTTPS-ссылка прайса (вставьте 1 раз в кабинет Kaspi)</label>
+              <div style="display:flex; gap:6px;">
+                <input id="cloudFeedUrl" type="text" readonly style="flex:1; background:#fff;" />
+                <button class="btn" type="button" id="cloudCopyFeedBtn">Копировать</button>
+              </div>
+            </div>
+            <div class="field" style="justify-content:flex-end;">
+              <label>Уведомления и управление с телефона</label>
+              <a id="cloudTgLinkBtn" class="btn btn-primary" href="https://t.me/Qaspik_bot" target="_blank" rel="noopener" style="text-decoration:none;">
+                Привязать Telegram @Qaspik_bot
+              </a>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;">
+            <div class="field" style="width:110px;">
+              <label for="cloudDefaultStep">Шаг (₸)</label>
+              <input id="cloudDefaultStep" type="number" min="1" value="10" />
+            </div>
+            <div class="field" style="width:140px;">
+              <label for="cloudDefaultWindow">Шаг 1 ₸ у дна (₸)</label>
+              <input id="cloudDefaultWindow" type="number" min="0" value="200" />
+            </div>
+            <div class="field" style="width:180px;">
+              <label for="cloudDefaultFloor">У порога</label>
+              <select id="cloudDefaultFloor">
+                <option value="hold">Не пробивать порог</option>
+                <option value="minimum">Встать ровно на порог</option>
+              </select>
+            </div>
+            <div class="field" style="width:120px;">
+              <label for="cloudFilterRating">Мин. рейтинг</label>
+              <input id="cloudFilterRating" type="number" min="0" max="5" step="0.1" value="4.0" />
+            </div>
+            <div class="field" style="width:130px;">
+              <label for="cloudFilterPreorder">Макс. предзаказ</label>
+              <input id="cloudFilterPreorder" type="number" min="0" value="0" />
+            </div>
+            <label class="settings-auto-raise" style="height:38px;">
+              <input id="cloudDefaultAutoRaise" type="checkbox" checked />
+              <span>Автоповышение</span>
+            </label>
+          </div>
+
+          <div class="table-container" style="border-radius:8px; margin-bottom:14px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Товар из XML</th>
+                  <th>Цена в XML</th>
+                  <th>Код / ссылка Kaspi</th>
+                  <th>Порог min (₸)</th>
+                  <th>Макс. (₸)</th>
+                  <th>Живой статус</th>
+                </tr>
+              </thead>
+              <tbody id="cloudRulesBody"></tbody>
+            </table>
+          </div>
+
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+            <button class="btn btn-primary" type="button" id="cloudSaveAndRunBtn">Сохранить и проверить Kaspi сейчас</button>
+            <button class="btn" type="button" id="cloudSaveRulesBtn">Только сохранить</button>
+            <span id="cloudRunStatus" class="settings-help"></span>
+          </div>
+
+          <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Журнал изменений цен этого магазина</div>
+          <div id="cloudEventsList" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </section>
+      </main>
 
       <!-- PAGE: PRODUCTS -->
       <main class="workspace" id="page-products">
@@ -1713,7 +1892,8 @@
         appState.context = 'nct';
       }
       if (window.location.pathname === '/settings') switchPage('settings');
-      if (['/', '/orders', '/store/integration'].includes(window.location.pathname)) switchPage('integration');
+      if (window.location.pathname === '/autopilot' || window.location.pathname === '/') switchPage('autopilot');
+      if (['/orders', '/store/integration'].includes(window.location.pathname)) switchPage('integration');
       if (params.get('orderBy') === 'NctNotRegisteredFirst') {
         const sortEl = document.getElementById('sortSelect');
         if (sortEl) sortEl.value = 'NctNotRegisteredFirst';
@@ -1752,7 +1932,7 @@
       appState.page = page;
       if (context) appState.context = context;
 
-      ['products', 'settings', 'integration', 'devices', 'logs'].forEach((p) => {
+      ['autopilot', 'products', 'settings', 'integration', 'devices', 'logs'].forEach((p) => {
         const el = document.getElementById('page-' + p);
         if (el) el.style.display = p === page ? 'block' : 'none';
       });
@@ -1765,6 +1945,7 @@
       }
 
       const titleMap = {
+        autopilot: 'Автобот 24/7 — Живой мониторинг Kaspi',
         products: appState.context === 'nct' ? 'Национальный каталог товаров (НКТ)' : 'Товары',
         settings: 'Настройки магазина',
         integration: 'Кабинет продавца Kaspi',
@@ -2394,5 +2575,6 @@
   </script>
   <script src="/pilot-settings.js"></script>
   <script src="/seller-account.js"></script>
+  <script src="/autopilot.js"></script>
 </body>
 </html>

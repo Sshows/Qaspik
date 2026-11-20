@@ -4,6 +4,8 @@ const path = require('path');
 const { createPilotRouter } = require('./src/pilotRoutes');
 const { createSellerRouter } = require('./src/sellerRoutes');
 const { createSellerWebAccess } = require('./src/sellerWebAccess');
+const { createCloudBotEngine } = require('./src/cloudBotEngine');
+const { createBotRouter } = require('./src/botRoutes');
 
 const {
   getDb,
@@ -22,8 +24,17 @@ const { createTelegramBot, createTelegramWebhookHandler } = require('./src/teleg
 
 const app = express();
 const demoWritable = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
+const cloudBotEngine = createCloudBotEngine();
+
+let botInstance = null;
+const token = process.env.TELEGRAM_BOT_TOKEN;
+if (token && token !== 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
+  botInstance = createTelegramBot(token, cloudBotEngine);
+}
+
 app.use('/api/pilot', createPilotRouter(demoWritable));
 app.use('/api/seller', createSellerRouter(demoWritable, fetch, createSellerWebAccess(process.env)));
+app.use('/api', createBotRouter({ engine: cloudBotEngine, fetchImpl: fetch, telegramBot: botInstance }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -44,13 +55,7 @@ function demoAction(handler) {
   };
 }
 
-let botInstance = null;
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (token && token !== 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
-  botInstance = createTelegramBot(token);
-}
-
-const spaRoutes = ['/', '/products', '/orders', '/subscriptions', '/settings', '/account', '/store/integration'];
+const spaRoutes = ['/', '/products', '/autopilot', '/orders', '/subscriptions', '/settings', '/account', '/store/integration'];
 for (const route of spaRoutes) {
   app.get(route, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
